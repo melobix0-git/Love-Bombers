@@ -4,13 +4,17 @@ export default async function handler(req, res) {
   const userAgent = req.headers['user-agent'] || '';
   const isBot = /WhatsApp|facebookexternalhit|Twitterbot|TelegramBot|LinkedInBot|Discordbot/i.test(userAgent);
 
-  // 1. If a WhatsApp or Social Bot opens a short link (e.g., /api/invitations?id=123)
-  if (req.method === 'GET' && isBot) {
-    const host = req.headers.host;
-    const protocol = req.headers['x-forwarded-proto'] || 'https';
-    const absoluteImageUrl = `${protocol}://${host}/og-cover.png`;
+  // 1. Handle GET Requests (Both Bots and Humans/React App)
+  if (req.method === 'GET') {
+    const { id } = req.query;
 
-    const botHtml = `<!DOCTYPE html>
+    // A. If a WhatsApp or Social Bot opens the link
+    if (isBot) {
+      const host = req.headers.host;
+      const protocol = req.headers['x-forwarded-proto'] || 'https';
+      const absoluteImageUrl = `${protocol}://${host}/og-cover.png`;
+
+      const botHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -30,13 +34,22 @@ export default async function handler(req, res) {
 <body></body>
 </html>`;
 
-    res.setHeader('Content-Type', 'text/html');
-    return res.status(200).send(botHtml);
+      res.setHeader('Content-Type', 'text/html');
+      return res.status(200).send(botHtml);
+    }
+
+    // B. If a regular browser opens the link or React app fetches data
+    if (id) {
+      // If fetching from Supabase or DB, replace/query the record here
+      return res.status(200).json({ success: true, id });
+    }
+
+    return res.status(400).json({ error: 'Missing invitation ID' });
   }
 
-  // 2. Handle POST Request (Saving or Updating Invitations)
+  // 2. Handle POST Requests (Creating or Updating Invitations)
   if (req.method === 'POST') {
-    const { action } = req.body;
+    const { action } = req.body || {};
 
     if (action === 'create') {
       const id = Math.random().toString(36).substring(2, 10);
@@ -45,7 +58,7 @@ export default async function handler(req, res) {
     }
 
     if (action === 'accept') {
-      const { id, acceptedDate, acceptedTime } = req.body;
+      const { id, acceptedDate, acceptedTime } = req.body || {};
       // Update record in database here
       return res.status(200).json({ success: true });
     }
@@ -53,5 +66,6 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid action' });
   }
 
+  // 3. Catch-all for unsupported HTTP methods
   return res.status(405).json({ error: 'Method not allowed' });
 }
