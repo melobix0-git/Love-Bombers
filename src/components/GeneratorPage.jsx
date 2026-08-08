@@ -77,7 +77,7 @@ export default function GeneratorPage() {
       if (data.success && data.id) {
         link = `${baseUrl}?id=${data.id}`;
       } else {
-        // Fallback to query string if D1 is not linked yet
+        // Fallback to query string if D1 is not active
         const params = new URLSearchParams({
           mode: 'view',
           myName: form.myName || 'Your Name',
@@ -94,7 +94,6 @@ export default function GeneratorPage() {
       setGeneratedLink(link);
       return link;
     } catch (err) {
-      // Fallback query URL
       const params = new URLSearchParams({
         mode: 'view',
         myName: form.myName || 'Your Name',
@@ -112,7 +111,8 @@ export default function GeneratorPage() {
   };
 
   const sendViaEmailApp = async () => {
-    const link = await generateLink();
+    // Await short link creation before triggering email client
+    const link = generatedLink || (await generateLink());
     
     const emailTo = encodeURIComponent(form.crushEmail || '');
     const subject = encodeURIComponent(`Hey ${form.crushName || 'there'}! You have a special invitation 💖`);
@@ -269,7 +269,7 @@ export default function GeneratorPage() {
         {generatedLink && (
           <>
             <div className="link-output-box">
-              <p><strong>Your Love Bomber Link:</strong></p>
+              <p><strong>Your Short Love Bomber Link:</strong></p>
               <a href={generatedLink} target="_blank" rel="noreferrer">{generatedLink}</a>
             </div>
 
