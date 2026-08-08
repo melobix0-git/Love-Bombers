@@ -4,6 +4,19 @@ import { SONG_MAP } from '../config';
 import EmojiBackground from './EmojiBackground';
 
 export default function ViewerPage({ crushName, myName, color, meal, place, img, song }) {
+  // Safe color formatting: Ensure leading '#' hex symbol exists
+  const themeColor = color ? (color.startsWith('#') ? color : `#${color}`) : '#800020';
+
+  // Safe image decoding fallback
+  let imageUrl = img || '';
+  if (imageUrl) {
+    try {
+      imageUrl = decodeURIComponent(imageUrl);
+    } catch (e) {
+      console.warn('Could not decode image URL:', e);
+    }
+  }
+
   const [accepted, setAccepted] = useState(false);
   const [noCount, setNoCount] = useState(0);
   const [yesCount, setYesCount] = useState(0);
@@ -49,8 +62,6 @@ export default function ViewerPage({ crushName, myName, color, meal, place, img,
   };
 
   const getYesButtonStyle = () => {
-    // Dynamic scaling on each click/tap step alongside slight rotation transforms
-    const scale = 1 + yesCount * 0.12;
     if (yesCount === 0) return { transform: 'scale(1)' };
     return {
       transform: `scale(1.08) translate(${Math.sin(yesCount) * 4}px, ${Math.cos(yesCount) * 3}px)`,
@@ -123,12 +134,12 @@ export default function ViewerPage({ crushName, myName, color, meal, place, img,
     return new Date(year, month - 1, day).toDateString();
   };
 
-  const hasValidImage = Boolean(img && img.trim() !== '');
+  const hasValidImage = Boolean(imageUrl && imageUrl.trim() !== '');
 
   return (
     <div className="container viewer-container">
       {/* Dynamic WhatsApp/Telegram style background wallpaper */}
-      <EmojiBackground themeColor={color} />
+      <EmojiBackground themeColor={themeColor} />
 
       {/* Background Audio Source */}
       {song !== 'none' && SONG_MAP[song] && (
@@ -180,26 +191,26 @@ export default function ViewerPage({ crushName, myName, color, meal, place, img,
         <div className="card invitation-card">
           {hasValidImage ? (
             <div className="heart-frame-container">
-              <div className="heart-frame" style={{ backgroundColor: color }}>
-                <img src={img} alt={crushName} className="crush-img" />
+              <div className="heart-frame" style={{ backgroundColor: themeColor }}>
+                <img src={imageUrl} alt={crushName} className="crush-img" />
               </div>
             </div>
           ) : (
             <div className="heart-frame-container">
-              <div className="heart-frame" style={{ backgroundColor: color }}>
+              <div className="heart-frame" style={{ backgroundColor: themeColor }}>
                 <span style={{ fontSize: '3rem', color: '#fff' }}>💖</span>
               </div>
             </div>
           )}
           
-          <h1 className="title" style={{ color }}>
+          <h1 className="title" style={{ color: themeColor }}>
             {crushName}, will you be my date? 🥺
           </h1>
 
           <div className="button-wrapper" style={{ position: 'relative', minHeight: '120px', width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
             <button 
               className="btn yes-btn" 
-              style={{ background: color, ...getYesButtonStyle() }} 
+              style={{ background: themeColor, ...getYesButtonStyle() }} 
               onClick={handleYesClick}
             >
               {yesMessages[yesCount]}
@@ -223,7 +234,7 @@ export default function ViewerPage({ crushName, myName, color, meal, place, img,
       {/* STAGE 2: DATE & TIME FORM */}
       {accepted && !form.date && (
         <div className="card">
-          <h2 className="form-title" style={{ color }}>Arewà, make we plan this date! 😍</h2>
+          <h2 className="form-title" style={{ color: themeColor }}>Arewà, make we plan this date! 😍</h2>
           <form 
             className="date-form" 
             onSubmit={(e) => {
@@ -232,7 +243,7 @@ export default function ViewerPage({ crushName, myName, color, meal, place, img,
               setForm({ date: formData.get('date'), time: formData.get('time') });
             }}
           >
-            <p className="summary-preview" style={{ borderLeftColor: color }}>
+            <p className="summary-preview" style={{ borderLeftColor: themeColor }}>
               🍛 <strong>Meal:</strong> {meal} <br/>
               📍 <strong>Place:</strong> {place}
             </p>
@@ -243,7 +254,7 @@ export default function ViewerPage({ crushName, myName, color, meal, place, img,
             <label htmlFor="time-input">What time? ⏰</label>
             <input id="time-input" type="time" name="time" required />
             
-            <button type="submit" className="btn submit-btn" style={{ background: color }}>
+            <button type="submit" className="btn submit-btn" style={{ background: themeColor }}>
               Oya, make we go! 💃
             </button>
           </form>
@@ -253,11 +264,11 @@ export default function ViewerPage({ crushName, myName, color, meal, place, img,
       {/* STAGE 3: SUCCESS & GOOGLE CALENDAR */}
       {accepted && form.date && (
         <div className="card success-card">
-          <div className="celebration-badge" style={{ backgroundColor: color }}>
+          <div className="celebration-badge" style={{ backgroundColor: themeColor }}>
             🎉 IT'S A DATE! 🎉
           </div>
 
-          <h1 className="title success-title" style={{ color }}>
+          <h1 className="title success-title" style={{ color: themeColor }}>
             No Worry, I go Flex you die! ❤️
           </h1>
           <p className="success-text">Omo, I can't wait to see you! 😘</p>
@@ -303,7 +314,7 @@ export default function ViewerPage({ crushName, myName, color, meal, place, img,
             target="_blank"
             rel="noopener noreferrer"
             className="btn calendar-btn"
-            style={{ backgroundColor: color }}
+            style={{ backgroundColor: themeColor }}
           >
             📅 Add to Google Calendar
           </a>
