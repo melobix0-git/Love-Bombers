@@ -7,22 +7,35 @@ import './App.css';
 const useQueryParams = () => {
   const params = new URLSearchParams(window.location.search);
   
-  // Check if an invitation ID or explicit view mode exists in the URL
   const inviteId = params.get('id');
   const explicitMode = params.get('mode');
-  
-  // If 'id' exists or 'mode=view', default the mode to 'view'
   const isViewMode = explicitMode === 'view' || Boolean(inviteId);
+
+  // Clean raw color value: if passed as 'e91e63' or '%23e91e63', ensure leading '#'
+  let rawColor = params.get('color') || 'e91e63';
+  if (!rawColor.startsWith('#')) {
+    rawColor = `#${rawColor}`;
+  }
+
+  // Safely decode image URL parameter
+  let rawImg = params.get('img') || '';
+  if (rawImg) {
+    try {
+      rawImg = decodeURIComponent(rawImg);
+    } catch (e) {
+      console.warn('Could not decode image parameter:', e);
+    }
+  }
 
   return {
     id: inviteId || '',
     mode: isViewMode ? 'view' : 'generate',
     crushName: params.get('crushName') || 'My Crush',
     myName: params.get('myName') || 'Your Name',
-    color: params.get('color') || '#e91e63',
+    color: rawColor,
     meal: params.get('meal') || 'Jollof Rice',
     place: params.get('place') || 'Lekki, Lagos',
-    img: params.get('img') || '',
+    img: rawImg,
     song: params.get('song') || 'none',
   };
 };
@@ -33,7 +46,6 @@ export default function App() {
   const [loading, setLoading] = useState(Boolean(queryProps.id));
 
   useEffect(() => {
-    // If a short link contains an invitation ID, fetch the invitation data from Vercel API
     if (queryProps.id) {
       fetch(`/api/invitations?id=${queryProps.id}`)
         .then((res) => res.json())
@@ -58,12 +70,21 @@ export default function App() {
     );
   }
 
+  // Combine query props with any fetched database invitation properties
+  const mergedProps = {
+    ...queryProps,
+    ...(inviteData || {}),
+    // Ensure image and color prioritize loaded invitation values if available
+    color: inviteData?.color || queryProps.color,
+    img: inviteData?.img || queryProps.img,
+  };
+
   return (
     <div className="app-root">
       <Header />
       <main className="main-content">
-        {queryProps.mode === 'view' ? (
-          <ViewerPage {...queryProps} {...inviteData} />
+        {mergedProps.mode === 'view' ? (
+          <ViewerPage {...mergedProps} />
         ) : (
           <GeneratorPage />
         )}
