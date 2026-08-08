@@ -7,7 +7,8 @@ export default function GeneratorPage() {
   const [form, setForm] = useState({
     myName: '',
     crushName: '',
-    color: '#800020', // Default changed to burgundy
+    senderPhone: '',
+    color: '#800020', // Default burgundy
     meal: 'Jollof Rice',
     place: 'Lekki, Lagos',
     song: 'none',
@@ -49,21 +50,65 @@ export default function GeneratorPage() {
     if (form.imageFile) {
       imgUrl = await uploadImage(form.imageFile);
     }
-    
+
     const baseUrl = window.location.origin + window.location.pathname;
-    const params = new URLSearchParams({
-      mode: 'view',
-      myName: form.myName || 'Your Name',
-      crushName: form.crushName || 'My Crush',
-      color: form.color,
-      meal: form.meal,
-      place: form.place,
-      img: imgUrl,
-      song: form.song
-    });
-    const link = `${baseUrl}?${params.toString()}`;
-    setGeneratedLink(link);
-    return link;
+
+    try {
+      // Save invitation to Cloudflare D1 for short link generation
+      const res = await fetch('/api/invitations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create',
+          senderName: form.myName || 'Someone Special',
+          crushName: form.crushName || 'My Crush',
+          senderPhone: form.senderPhone,
+          meal: form.meal,
+          place: form.place,
+          song: form.song,
+          imageUrl: imgUrl,
+          themeColor: form.color
+        })
+      });
+
+      const data = await res.json();
+
+      let link = '';
+      if (data.success && data.id) {
+        link = `${baseUrl}?id=${data.id}`;
+      } else {
+        // Fallback to query string if D1 is not linked yet
+        const params = new URLSearchParams({
+          mode: 'view',
+          myName: form.myName || 'Your Name',
+          crushName: form.crushName || 'My Crush',
+          color: form.color,
+          meal: form.meal,
+          place: form.place,
+          img: imgUrl,
+          song: form.song
+        });
+        link = `${baseUrl}?${params.toString()}`;
+      }
+
+      setGeneratedLink(link);
+      return link;
+    } catch (err) {
+      // Fallback query URL
+      const params = new URLSearchParams({
+        mode: 'view',
+        myName: form.myName || 'Your Name',
+        crushName: form.crushName || 'My Crush',
+        color: form.color,
+        meal: form.meal,
+        place: form.place,
+        img: imgUrl,
+        song: form.song
+      });
+      const link = `${baseUrl}?${params.toString()}`;
+      setGeneratedLink(link);
+      return link;
+    }
   };
 
   const sendViaEmailApp = async () => {
@@ -104,6 +149,14 @@ export default function GeneratorPage() {
             value={form.crushName} 
             onChange={(e) => setForm({...form, crushName: e.target.value})} 
           />
+
+          <label>Your WhatsApp Phone Number (to receive her confirmation)</label>
+          <input 
+            type="tel" 
+            placeholder="e.g. 2348012345678" 
+            value={form.senderPhone} 
+            onChange={(e) => setForm({...form, senderPhone: e.target.value})} 
+          />
           
           {/* Collapsible Color Picker Section */}
           <div className="form-group color-picker-collapsible">
@@ -130,7 +183,7 @@ export default function GeneratorPage() {
                     style={{ backgroundColor: c.hex }}
                     onClick={() => {
                       setForm({ ...form, color: c.hex });
-                      setIsColorPickerOpen(false); // Auto close on select
+                      setIsColorPickerOpen(false);
                     }}
                   >
                     <span className="color-label">{c.name}</span>
@@ -198,7 +251,7 @@ export default function GeneratorPage() {
               onClick={generateLink} 
               disabled={isUploading}
             >
-              {isUploading ? 'Uploading...' : 'Generate Link 📋'}
+              {isUploading ? 'Uploading...' : 'Generate Short Link 📋'}
             </button>
 
             <button 
@@ -220,7 +273,6 @@ export default function GeneratorPage() {
               <a href={generatedLink} target="_blank" rel="noreferrer">{generatedLink}</a>
             </div>
 
-            {/* Integrated WhatsApp Share & Quick Copy Action */}
             <WhatsAppShare 
               generatedUrl={generatedLink} 
               crushName={form.crushName} 
