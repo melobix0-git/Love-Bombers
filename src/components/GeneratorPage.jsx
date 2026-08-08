@@ -7,7 +7,7 @@ export default function GeneratorPage() {
   const [form, setForm] = useState({
     myName: '',
     crushName: '',
-    senderPhone: '',
+    senderPhone: '', // Optional
     color: '#800020', // Default burgundy
     meal: 'Jollof Rice',
     place: 'Lekki, Lagos',
@@ -62,7 +62,7 @@ export default function GeneratorPage() {
           action: 'create',
           senderName: form.myName || 'Someone Special',
           crushName: form.crushName || 'My Crush',
-          senderPhone: form.senderPhone,
+          senderPhone: form.senderPhone || '', // Optional payload string
           meal: form.meal,
           place: form.place,
           song: form.song,
@@ -82,6 +82,7 @@ export default function GeneratorPage() {
           mode: 'view',
           myName: form.myName || 'Your Name',
           crushName: form.crushName || 'My Crush',
+          senderPhone: form.senderPhone || '',
           color: form.color,
           meal: form.meal,
           place: form.place,
@@ -98,6 +99,7 @@ export default function GeneratorPage() {
         mode: 'view',
         myName: form.myName || 'Your Name',
         crushName: form.crushName || 'My Crush',
+        senderPhone: form.senderPhone || '',
         color: form.color,
         meal: form.meal,
         place: form.place,
@@ -150,10 +152,10 @@ export default function GeneratorPage() {
             onChange={(e) => setForm({...form, crushName: e.target.value})} 
           />
 
-          <label>Your WhatsApp Phone Number (to receive her confirmation)</label>
+          <label>Your WhatsApp Phone Number (optional - to receive reply)</label>
           <input 
             type="tel" 
-            placeholder="e.g. 2348012345678" 
+            placeholder="e.g. 2348012345678 (optional)" 
             value={form.senderPhone} 
             onChange={(e) => setForm({...form, senderPhone: e.target.value})} 
           />
