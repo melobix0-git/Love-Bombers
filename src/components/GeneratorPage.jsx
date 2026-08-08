@@ -54,7 +54,7 @@ export default function GeneratorPage() {
     const baseUrl = window.location.origin + window.location.pathname;
 
     try {
-      // Save invitation to Cloudflare D1 for short link generation
+      // Save invitation to Vercel API for short link generation
       const res = await fetch('/api/invitations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -62,7 +62,7 @@ export default function GeneratorPage() {
           action: 'create',
           senderName: form.myName || 'Someone Special',
           crushName: form.crushName || 'My Crush',
-          senderPhone: form.senderPhone || '', // Optional payload string
+          senderPhone: form.senderPhone || '',
           meal: form.meal,
           place: form.place,
           song: form.song,
@@ -77,13 +77,14 @@ export default function GeneratorPage() {
       if (data.success && data.id) {
         link = `${baseUrl}?id=${data.id}`;
       } else {
-        // Fallback to query string if D1 is not active
+        // Fallback to query string if API ID creation fails
+        const safeColor = form.color.replace('#', '');
         const params = new URLSearchParams({
           mode: 'view',
           myName: form.myName || 'Your Name',
           crushName: form.crushName || 'My Crush',
           senderPhone: form.senderPhone || '',
-          color: form.color,
+          color: safeColor,
           meal: form.meal,
           place: form.place,
           img: imgUrl,
@@ -95,12 +96,13 @@ export default function GeneratorPage() {
       setGeneratedLink(link);
       return link;
     } catch (err) {
+      const safeColor = form.color.replace('#', '');
       const params = new URLSearchParams({
         mode: 'view',
         myName: form.myName || 'Your Name',
         crushName: form.crushName || 'My Crush',
         senderPhone: form.senderPhone || '',
-        color: form.color,
+        color: safeColor,
         meal: form.meal,
         place: form.place,
         img: imgUrl,
@@ -113,7 +115,6 @@ export default function GeneratorPage() {
   };
 
   const sendViaEmailApp = async () => {
-    // Await short link creation before triggering email client
     const link = generatedLink || (await generateLink());
     
     const emailTo = encodeURIComponent(form.crushEmail || '');
