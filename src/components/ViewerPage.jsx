@@ -322,9 +322,9 @@ export default function ViewerPage({ crushName, myName, color, meal, place, img,
       )}
 
       {/* Playful Flex Subtext */}
-      <p className="guy-flex-text">
+      <div className="flex-pill-box">
         Normal guys send texts, but I built you a whole website. I'm not like other guys 😉
-      </p>
+      </div>
     </div>
   );
 }
