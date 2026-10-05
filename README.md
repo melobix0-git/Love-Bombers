@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-The Vite frontend runs without the Vercel API locally. To exercise invitation creation and responses locally, run the app with `vercel dev` or configure a local API proxy.
+The Vite dev server includes a local, in-memory invitation API, so creation and responses can be tested without credentials. Data in local memory is lost when the dev server restarts. Production still requires durable storage.
 
 ## Environment variables
 
