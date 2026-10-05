@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
+import { trackEvent } from '../analytics';
 
 export default function WhatsAppShare({ generatedUrl, crushName, myName }) {
   const [copied, setCopied] = useState(false);
@@ -39,6 +40,7 @@ export default function WhatsAppShare({ generatedUrl, crushName, myName }) {
   const handleNativeShare = async () => {
     try {
       await navigator.share({ title: 'Love Bomber invitation', text: shareMessage, url: generatedUrl });
+      trackEvent('invitation_shared', { channel: 'native' });
       setShareError('');
     } catch (error) {
       if (error.name !== 'AbortError') setShareError('Sharing was not completed. You can still copy the link.');
@@ -60,6 +62,7 @@ export default function WhatsAppShare({ generatedUrl, crushName, myName }) {
         document.execCommand('copy');
         helper.remove();
       }
+      trackEvent('invitation_shared', { channel: 'copy' });
       setCopyError('');
       setCopied(true);
       window.setTimeout(() => setCopied(false), 3000);
@@ -77,13 +80,13 @@ export default function WhatsAppShare({ generatedUrl, crushName, myName }) {
 
       <div className="share-buttons-wrapper">
         {canNativeShare && <button type="button" onClick={handleNativeShare} className="btn native-share-btn"><span aria-hidden="true">📤</span> Share</button>}
-        <a href={whatsappUrl} target="_blank" rel="noopener noreferrer" className="btn whatsapp-btn"><span aria-hidden="true">📲</span> WhatsApp</a>
+        <a href={whatsappUrl} onClick={() => trackEvent('invitation_shared', { channel: 'whatsapp' })} target="_blank" rel="noopener noreferrer" className="btn whatsapp-btn"><span aria-hidden="true">📲</span> WhatsApp</a>
         <button type="button" onClick={handleCopy} className="btn copy-btn"><span aria-hidden="true">📋</span> {copied ? 'Copied!' : 'Copy link'}</button>
         <button type="button" onClick={() => { setShowQr((visible) => !visible); setShareError(''); }} className="btn qr-btn"><span aria-hidden="true">🔳</span> {showQr ? 'Hide QR' : 'Show QR'}</button>
       </div>
 
       {showQr && (
-        <div className="qr-panel">
+        <div className="qr-panel" onClick={() => trackEvent('invitation_shared', { channel: 'qr' })}>
           {qrCode && qrForUrl === generatedUrl ? <img className="qr-image" src={qrCode} alt="QR code for this Love Bomber invitation" /> : <p className="field-help">Generating your QR code…</p>}
           {qrCode && qrForUrl === generatedUrl && <a className="text-button" href={qrCode} download="love-bomber-invitation-qr.png">Download QR code</a>}
         </div>

@@ -40,6 +40,12 @@ export const SOUND_OPTIONS = [
   { value: 'romantic_chime', label: 'Original romantic chime' },
 ];
 
+export const TEMPLATE_OPTIONS = [
+  { value: 'classic', label: 'Classic love' },
+  { value: 'midnight', label: 'Midnight glow' },
+  { value: 'sunset', label: 'Sunset warmth' },
+];
+
 export function getForegroundForColor(hex) {
   const knownColor = COLOR_OPTIONS.find((color) => color.hex.toLowerCase() === (hex || '').toLowerCase());
   if (knownColor) return knownColor.foreground;

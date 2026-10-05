@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { trackEvent } from '../analytics';
 import EmojiBackground from './EmojiBackground';
 import WhatsAppShare from './WhatsAppShare';
 
@@ -48,6 +49,7 @@ function statusDetails(status, selectedDate, selectedTime) {
 
 export default function CreatorStatusPage({
   id,
+  token = '',
   myName = 'Someone special',
   crushName = 'Your date',
   color = '#800020',
@@ -64,6 +66,9 @@ export default function CreatorStatusPage({
   const themeColor = /^#[0-9a-f]{6}$/i.test(color) ? color : '#800020';
   const details = statusDetails(status, selectedDate, selectedTime);
   const invitationUrl = `${window.location.origin}${window.location.pathname}?id=${encodeURIComponent(id)}`;
+  const editUrl = token
+    ? `${window.location.origin}${window.location.pathname}?mode=edit&id=${encodeURIComponent(id)}&token=${encodeURIComponent(token)}`
+    : '';
 
   const copyStatusLink = async () => {
     try {
@@ -81,7 +86,7 @@ export default function CreatorStatusPage({
       <section className="card creator-status-card">
         <p className="eyebrow">PRIVATE CREATOR STATUS</p>
         <h1 className="form-title" style={{ color: themeColor }}>{myName} → {crushName}</h1>
-        <div className={`status-hero ${details.className}`}>
+        <div className={`status-hero ${details.className}`} role="status" aria-live="polite">
           <span className="status-hero-icon" aria-hidden="true">{details.icon}</span>
           <h2>{details.title}</h2>
           <p>{details.message}</p>
@@ -95,7 +100,8 @@ export default function CreatorStatusPage({
         </div>
 
         <div className="status-actions">
-          <button type="button" className="btn secondary-btn" onClick={() => window.location.reload()}>Refresh status</button>
+          {editUrl && <a className="btn secondary-btn" href={editUrl}>Edit invitation</a>}
+          <button type="button" className="btn secondary-btn" onClick={() => { trackEvent('status_refreshed'); window.location.reload(); }}>Refresh status</button>
           <button type="button" className="btn copy-btn" onClick={copyStatusLink}>{copied ? 'Status link copied' : 'Copy status link'}</button>
         </div>
 

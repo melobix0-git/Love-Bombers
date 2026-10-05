@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import confetti from 'canvas-confetti';
 import { getForegroundForColor, SOUND_OPTIONS } from '../config';
+import { trackEvent } from '../analytics';
 import { getInvitationCopy } from '../copy';
 import { playRomanticChime } from '../sounds';
 import EmojiBackground from './EmojiBackground';
@@ -50,6 +51,7 @@ export default function ViewerPage({
   place = 'Somewhere special',
   img = '',
   sound = 'romantic_chime',
+  template = 'classic',
   locale = 'en',
   tone = 'romantic',
   customMessage = '',
@@ -69,6 +71,7 @@ export default function ViewerPage({
   const [selectedOption, setSelectedOption] = useState(selectedDate && selectedTime ? `${selectedDate}|${selectedTime}` : '');
   const [isSaving, setIsSaving] = useState(false);
   const [responseError, setResponseError] = useState('');
+  const [imageFailed, setImageFailed] = useState(false);
 
   const createHeart = () => {
     const heart = {
@@ -101,6 +104,7 @@ export default function ViewerPage({
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Your response could not be saved.');
+      trackEvent('invitation_response', { status, hasDate: Boolean(date && time), dateMode });
       return true;
     } catch (error) {
       setResponseError(error.message);
@@ -114,11 +118,14 @@ export default function ViewerPage({
     const saved = await saveResponse({ status: 'accepted' });
     if (!saved) return;
 
-    createHeart();
+    const reducedMotion = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)').matches : false;
+    if (!reducedMotion) {
+      createHeart();
+      confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+      window.setTimeout(() => confetti({ particleCount: 100, spread: 100 }), 400);
+    }
     setAccepted(true);
-    if (hasSound && sound === 'romantic_chime') playRomanticChime();
-    confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
-    window.setTimeout(() => confetti({ particleCount: 100, spread: 100 }), 400);
+    if (hasSound && sound === 'romantic_chime' && !reducedMotion) playRomanticChime();
   };
 
   const handleNoClick = async () => {
@@ -183,7 +190,7 @@ export default function ViewerPage({
     : '';
 
   return (
-    <div className="container viewer-container">
+    <div className={`container viewer-container template-${template}`}>
       <EmojiBackground themeColor={themeColor} />
 
       <div className="hearts-container" aria-hidden="true">
@@ -206,7 +213,7 @@ export default function ViewerPage({
         <section className="card invitation-card">
           <div className="heart-frame-container">
             <div className="heart-frame" style={{ backgroundColor: themeColor }}>
-              {imageUrl ? <img src={imageUrl} alt={`A photo shared by ${myName}`} className="crush-img" /> : <span className="heart-placeholder" aria-hidden="true">💖</span>}
+              {imageUrl && !imageFailed ? <img src={imageUrl} onError={() => setImageFailed(true)} alt={`A photo shared by ${myName}`} className="crush-img" /> : <span className="heart-placeholder" aria-hidden="true">💖</span>}
             </div>
           </div>
 
@@ -293,7 +300,7 @@ export default function ViewerPage({
             <div className="detail-chip"><span className="chip-icon">⏰</span><div><span className="chip-label">Time</span><strong className="chip-value">{form.time}</strong></div></div>
           </div>
 
-          <a href={getCalendarLink()} target="_blank" rel="noopener noreferrer" className="btn calendar-btn" style={{ backgroundColor: themeColor, color: foregroundColor }}>
+          <a href={getCalendarLink()} onClick={() => trackEvent('calendar_added', { dateMode })} target="_blank" rel="noopener noreferrer" className="btn calendar-btn" style={{ backgroundColor: themeColor, color: foregroundColor }}>
             📅 Add to Google Calendar
           </a>
 

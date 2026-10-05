@@ -1,5 +1,24 @@
 {
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" }
+      ]
+    }
+  ],
   "rewrites": [
+    {
+      "source": "/",
+      "has": [
+        { "type": "query", "key": "id" },
+        { "type": "header", "key": "user-agent", "value": "(WhatsApp|facebookexternalhit|Twitterbot|TelegramBot|LinkedInBot|Discordbot)" }
+      ],
+      "destination": "/api/invitations"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"

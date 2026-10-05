@@ -3,9 +3,12 @@ import {
   COLOR_OPTIONS,
   LOCALE_OPTIONS,
   SOUND_OPTIONS,
+  TEMPLATE_OPTIONS,
   TONE_OPTIONS,
   getForegroundForColor,
 } from '../config';
+import { trackEvent } from '../analytics';
+import { clearRecentInvitations, getRecentInvitations, saveRecentInvitation } from '../history';
 import EmojiBackground from './EmojiBackground';
 import InvitationPreview from './InvitationPreview';
 import WhatsAppShare from './WhatsAppShare';
@@ -22,6 +25,7 @@ const INITIAL_FORM = {
   meal: 'Jollof Rice',
   place: 'Lekki, Lagos',
   sound: 'romantic_chime',
+  template: 'classic',
   locale: 'en',
   tone: 'romantic',
   customMessage: '',
@@ -41,6 +45,10 @@ function compressImage(file) {
   return new Promise((resolve, reject) => {
     if (!file || !file.type.startsWith('image/')) {
       reject(new Error('Please choose a valid image file.'));
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      reject(new Error('Please choose an image smaller than 10 MB.'));
       return;
     }
 
@@ -69,8 +77,31 @@ function hasDateOption(option) {
   return Boolean(option.date && option.time);
 }
 
-export default function GeneratorPage() {
-  const [form, setForm] = useState(INITIAL_FORM);
+function formFromInvitation(invitation) {
+  return {
+    ...INITIAL_FORM,
+    myName: invitation.myName || '',
+    crushName: invitation.crushName || '',
+    senderPhone: invitation.senderPhone || '',
+    senderEmail: invitation.senderEmail || '',
+    color: invitation.color || INITIAL_FORM.color,
+    meal: invitation.meal || INITIAL_FORM.meal,
+    place: invitation.place || INITIAL_FORM.place,
+    sound: invitation.sound || INITIAL_FORM.sound,
+    template: invitation.template || INITIAL_FORM.template,
+    locale: invitation.locale || INITIAL_FORM.locale,
+    tone: invitation.tone || INITIAL_FORM.tone,
+    customMessage: invitation.customMessage || '',
+    playfulNo: Boolean(invitation.playfulNo),
+    imageUrl: invitation.img || '',
+    dateMode: invitation.dateMode || INITIAL_FORM.dateMode,
+    dateOptions: invitation.dateOptions?.length ? invitation.dateOptions.map((option) => ({ ...option })) : INITIAL_FORM.dateOptions.map((option) => ({ ...option })),
+  };
+}
+
+export default function GeneratorPage({ initialData = null, editId = '', editToken = '' }) {
+  const editMode = Boolean(editId && editToken);
+  const [form, setForm] = useState(() => (initialData ? formFromInvitation(initialData) : { ...INITIAL_FORM, dateOptions: INITIAL_FORM.dateOptions.map((option) => ({ ...option })) }));
   const [step, setStep] = useState(1);
   const [generatedLink, setGeneratedLink] = useState('');
   const [statusLink, setStatusLink] = useState('');
@@ -78,6 +109,7 @@ export default function GeneratorPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
   const [error, setError] = useState('');
+  const [recentInvitations, setRecentInvitations] = useState(() => getRecentInvitations());
 
   const selectedColor = COLOR_OPTIONS.find((color) => color.hex === form.color) || {
     name: 'Custom color',
@@ -125,11 +157,20 @@ export default function GeneratorPage() {
       setError('Add at least one suggested date, or choose “Let them choose any date”.');
       return false;
     }
+    if (stepToValidate === 2 && form.imageUrl) {
+      try {
+        if (new URL(form.imageUrl).protocol !== 'https:') throw new Error('bad protocol');
+      } catch {
+        setError('Photo URLs must use https://, or choose a photo file instead.');
+        return false;
+      }
+    }
     return true;
   };
 
   const goToNextStep = () => {
     if (!validateStep(step)) return;
+    trackEvent('invitation_step_completed', { step });
     setStep((currentStep) => Math.min(currentStep + 1, STEP_LABELS.length));
   };
 
@@ -149,7 +190,8 @@ export default function GeneratorPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'create',
+          action: editMode ? 'update' : 'create',
+          ...(editMode ? { id: editId, token: editToken } : {}),
           senderName: form.myName,
           crushName: form.crushName,
           senderPhone: form.senderPhone,
@@ -157,6 +199,7 @@ export default function GeneratorPage() {
           meal: form.meal,
           place: form.place,
           sound: form.sound,
+          template: form.template,
           themeColor: form.color,
           locale: form.locale,
           tone: form.tone,
@@ -175,12 +218,31 @@ export default function GeneratorPage() {
       }
 
       const baseUrl = `${window.location.origin}${window.location.pathname}`;
-      const link = `${baseUrl}?id=${encodeURIComponent(data.id)}`;
-      const privateStatusLink = data.manageToken
-        ? `${baseUrl}?mode=status&id=${encodeURIComponent(data.id)}&token=${encodeURIComponent(data.manageToken)}`
+      const invitationId = data.id || editId;
+      const link = `${baseUrl}?id=${encodeURIComponent(invitationId)}`;
+      const statusToken = data.manageToken || editToken;
+      const privateStatusLink = statusToken
+        ? `${baseUrl}?mode=status&id=${encodeURIComponent(invitationId)}&token=${encodeURIComponent(statusToken)}`
         : '';
       setGeneratedLink(link);
       setStatusLink(privateStatusLink);
+      if (privateStatusLink) {
+        setRecentInvitations(saveRecentInvitation({
+          id: invitationId,
+          myName: form.myName,
+          crushName: form.crushName,
+          invitationLink: link,
+          statusLink: privateStatusLink,
+          updatedAt: new Date().toISOString(),
+        }));
+      }
+      trackEvent(editMode ? 'invitation_updated' : 'invitation_created', {
+        locale: form.locale,
+        tone: form.tone,
+        template: form.template,
+        dateMode: form.dateMode,
+        hasPhoto: Boolean(form.imageData || form.imageUrl),
+      });
       return link;
     } catch (createError) {
       setError(createError.message);
@@ -204,6 +266,10 @@ export default function GeneratorPage() {
     if (!link) return;
 
     const recipient = form.recipientEmail.trim();
+    if (recipient && !/^\S+@\S+\.\S+$/.test(recipient)) {
+      setError('Please enter a valid recipient email address.');
+      return;
+    }
     const subject = encodeURIComponent(`Hey ${form.crushName || 'there'}! You have a special invitation 💖`);
     const body = encodeURIComponent(
       `Hey ${form.crushName || 'there'}!\n\n` +
@@ -218,11 +284,28 @@ export default function GeneratorPage() {
     <div className="container generator-container">
       <EmojiBackground themeColor={form.color} />
 
+      {!editMode && recentInvitations.length > 0 && (
+        <section className="card recent-invitations-card">
+          <div className="recent-heading">
+            <div><p className="eyebrow">ON THIS DEVICE</p><h2>Recent invitations</h2></div>
+            <button type="button" className="text-button" onClick={() => { clearRecentInvitations(); setRecentInvitations([]); }}>Clear history</button>
+          </div>
+          <div className="recent-list">
+            {recentInvitations.map((invitation) => (
+              <div className="recent-item" key={invitation.id}>
+                <span><strong>{invitation.crushName || 'Your date'}</strong><small>from {invitation.myName || 'you'}</small></span>
+                <span className="recent-links"><a href={invitation.invitationLink}>Open</a><a href={invitation.statusLink}>Status</a></span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <div className="generator-shell">
         <section className="card generator-card">
           <p className="eyebrow">CREATE · INVITE · CONNECT</p>
-          <h1 className="form-title" style={{ color: form.color }}>Create a date invitation 💖</h1>
-          <p className="intro-text">Make something personal, send it with love, and let them choose what works for them.</p>
+          <h1 className="form-title" style={{ color: form.color }}>{editMode ? 'Edit your invitation ✏️' : 'Create a date invitation 💖'}</h1>
+          <p className="intro-text">{editMode ? 'Update the details below and keep the same private status link.' : 'Make something personal, send it with love, and let them choose what works for them.'}</p>
 
           <nav className="wizard-progress" aria-label="Invitation creation steps">
             {STEP_LABELS.map((label, index) => {
@@ -271,6 +354,11 @@ export default function GeneratorPage() {
             {step === 2 && (
               <div className="step-panel">
                 <div className="form-section-heading">Make it yours</div>
+
+                <label htmlFor="template-choice">Invitation style</label>
+                <select id="template-choice" value={form.template} onChange={(event) => updateField('template', event.target.value)}>
+                  {TEMPLATE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
 
                 <div className="form-group color-picker-collapsible">
                   <label id="color-label">Theme color</label>
@@ -367,7 +455,7 @@ export default function GeneratorPage() {
 
                 <div className="action-buttons">
                   <button className="btn submit-btn" style={{ background: form.color, color: foregroundColor }} type="submit" disabled={isGenerating}>
-                    {isGenerating ? 'Creating your invitation…' : 'Create invitation 📋'}
+                    {isGenerating ? (editMode ? 'Saving changes…' : 'Creating your invitation…') : (editMode ? 'Save changes 💾' : 'Create invitation 📋')}
                   </button>
                   <button type="button" className="btn email-btn" onClick={sendViaEmailApp} disabled={isGenerating}>
                     Open email app ✉️

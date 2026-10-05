@@ -5,12 +5,14 @@ import {
   saveInvitation,
   StorageNotConfiguredError,
 } from './_storage.js';
+import { enforceRateLimit, RateLimitError } from './_rate_limit.js';
 
 const MAX_IMAGE_DATA_LENGTH = 3_500_000;
 const DEFAULT_COLOR = '#800020';
 const DEFAULT_LOCALE = 'en';
 const DEFAULT_TONE = 'romantic';
 const DEFAULT_SOUND = 'romantic_chime';
+const DEFAULT_TEMPLATE = 'classic';
 
 class ApiError extends Error {
   constructor(status, message, code = 'BAD_REQUEST') {
@@ -252,8 +254,8 @@ function renderBotHtml(invitation, url) {
   <meta property="og:image" content="${escapeHtml(imageUrl)}">
   <meta property="og:image:secure_url" content="${escapeHtml(imageUrl)}">
   <meta property="og:image:type" content="image/png">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="630">
+  <meta property="og:image:width" content="1672">
+  <meta property="og:image:height" content="941">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${escapeHtml(title)}">
   <meta name="twitter:description" content="${escapeHtml(description)}">
@@ -288,6 +290,7 @@ async function createInvitation(body) {
     meal: text(body.meal, 'A meal together', 100),
     place: text(body.place, 'Somewhere special', 160),
     sound: ['none', DEFAULT_SOUND].includes(body.sound) ? body.sound : DEFAULT_SOUND,
+    template: ['classic', 'midnight', 'sunset'].includes(body.template) ? body.template : DEFAULT_TEMPLATE,
     img: imageUrl,
     color: color(body.themeColor),
     locale: ['en', 'pidgin'].includes(body.locale) ? body.locale : DEFAULT_LOCALE,
@@ -306,6 +309,51 @@ async function createInvitation(body) {
 
   await saveInvitation(invitation.id, invitation);
   return { invitation, manageToken };
+}
+
+async function updateInvitation(body) {
+  const id = text(body.id, '', 80);
+  const token = text(body.token, '', 160);
+  if (!id || !token) throw new ApiError(400, 'A private status token is required.');
+
+  const invitation = await getInvitation(id);
+  if (!invitation || !hasValidManageToken(invitation, token)) {
+    throw new ApiError(403, 'That edit link is not valid.', 'EDIT_ACCESS_DENIED');
+  }
+  if (isExpired(invitation)) throw new ApiError(410, 'This invitation has expired.', 'INVITATION_EXPIRED');
+
+  const dateMode = body.dateMode === 'suggestions' ? 'suggestions' : 'recipient';
+  const dateOptions = normalizeDateOptions(body.dateOptions);
+  if (dateMode === 'suggestions' && dateOptions.length === 0) {
+    throw new ApiError(422, 'Add at least one date option or let the recipient choose.', 'DATE_OPTIONS_REQUIRED');
+  }
+
+  const imageUrl = body.imageData
+    ? await uploadImageToImgBB(body.imageData)
+    : safeImageUrl(body.imageUrl);
+  const updated = {
+    ...invitation,
+    myName: text(body.senderName, invitation.myName, 80),
+    crushName: text(body.crushName, invitation.crushName, 80),
+    senderPhone: phone(body.senderPhone),
+    senderEmail: email(body.senderEmail),
+    meal: text(body.meal, invitation.meal, 100),
+    place: text(body.place, invitation.place, 160),
+    sound: ['none', DEFAULT_SOUND].includes(body.sound) ? body.sound : DEFAULT_SOUND,
+    template: ['classic', 'midnight', 'sunset'].includes(body.template) ? body.template : DEFAULT_TEMPLATE,
+    img: imageUrl,
+    color: color(body.themeColor),
+    locale: ['en', 'pidgin'].includes(body.locale) ? body.locale : DEFAULT_LOCALE,
+    tone: ['romantic', 'playful', 'simple'].includes(body.tone) ? body.tone : DEFAULT_TONE,
+    customMessage: text(body.customMessage, '', 500),
+    playfulNo: body.playfulNo === true,
+    dateMode,
+    dateOptions,
+    updatedAt: new Date().toISOString(),
+  };
+
+  await saveInvitation(id, updated);
+  return updated;
 }
 
 async function respondToInvitation(body) {
@@ -355,6 +403,8 @@ export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
 
   try {
+    if (req.method === 'POST') enforceRateLimit(req);
+
     if (req.method === 'GET') {
       const id = getId(req);
       let invitation = id ? await getInvitation(id) : null;
@@ -398,12 +448,22 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true, ...publicInvitation(invitation) });
       }
 
+      if (body.action === 'update') {
+        const invitation = await updateInvitation(body);
+        return res.status(200).json({ success: true, ...publicInvitation(invitation) });
+      }
+
       throw new ApiError(400, 'Invalid invitation action.');
     }
 
     res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({ error: 'Method not allowed.' });
   } catch (error) {
+    if (error instanceof RateLimitError) {
+      res.setHeader('Retry-After', String(error.retryAfter));
+      return res.status(429).json({ error: error.message, code: 'RATE_LIMITED' });
+    }
+
     if (error instanceof StorageNotConfiguredError) {
       return res.status(503).json({
         error: 'Invitation storage is not configured. Add the Upstash Redis environment variables.',

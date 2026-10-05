@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { trackEvent } from './analytics';
 import Header from './components/Header';
 import CreatorStatusPage from './components/CreatorStatusPage';
 import GeneratorPage from './components/GeneratorPage';
@@ -10,7 +11,7 @@ function useQueryParams() {
     const params = new URLSearchParams(window.location.search);
     const id = params.get('id') || '';
     const explicitMode = params.get('mode');
-    const mode = explicitMode === 'status' ? 'status' : explicitMode === 'view' || id ? 'view' : 'generate';
+    const mode = explicitMode === 'status' ? 'status' : explicitMode === 'edit' ? 'edit' : explicitMode === 'view' || id ? 'view' : 'generate';
     const rawColor = params.get('color') || '#800020';
 
     return {
@@ -35,8 +36,9 @@ function useQueryParams() {
 function InvitationState({ title, message, action }) {
   return (
     <div className="app-root">
+      <a className="skip-link" href="#main-content">Skip to content</a>
       <Header />
-      <main className="main-content state-main">
+      <main className="main-content state-main" id="main-content">
         <section className="card state-card" role="status">
           <div className="state-icon" aria-hidden="true">💌</div>
           <h1 className="title">{title}</h1>
@@ -52,6 +54,7 @@ export default function App() {
   const queryProps = useQueryParams();
   const [inviteData, setInviteData] = useState(null);
   const [inviteState, setInviteState] = useState(queryProps.id ? 'loading' : 'ready');
+  const [inviteErrorMessage, setInviteErrorMessage] = useState('');
 
   useEffect(() => {
     if (!queryProps.id) return undefined;
@@ -59,7 +62,7 @@ export default function App() {
     const controller = new AbortController();
 
     const tokenParam = queryProps.token ? `&token=${encodeURIComponent(queryProps.token)}` : '';
-    const modeParam = queryProps.mode === 'status' ? '&mode=status' : '';
+    const modeParam = ['status', 'edit'].includes(queryProps.mode) ? `&mode=${queryProps.mode}` : '';
     fetch(`/api/invitations?id=${encodeURIComponent(queryProps.id)}${modeParam}${tokenParam}`, { signal: controller.signal })
       .then(async (response) => {
         const data = await response.json().catch(() => ({}));
@@ -73,10 +76,12 @@ export default function App() {
       })
       .then((data) => {
         setInviteData(data);
+        if (queryProps.mode === 'view') trackEvent('invitation_opened', { locale: data.locale || 'en', tone: data.tone || 'romantic' });
         setInviteState('ready');
       })
       .catch((error) => {
         if (error.name === 'AbortError') return;
+        setInviteErrorMessage(error.message);
         setInviteState(error.status === 410 ? 'expired' : 'error');
       });
 
@@ -94,8 +99,8 @@ export default function App() {
   if (inviteState === 'error') {
     return (
       <InvitationState
-        title="We could not find that invitation"
-        message="The link may be incomplete, expired, or no longer available. Ask the sender to create a new one."
+        title={queryProps.mode === 'status' || queryProps.mode === 'edit' ? 'This private link is not valid' : 'We could not find that invitation'}
+        message={inviteErrorMessage || 'The link may be incomplete, expired, or no longer available. Ask the sender to create a new one.'}
         action={<a className="btn state-action" href={window.location.pathname}>Create a new invitation</a>}
       />
     );
@@ -108,9 +113,10 @@ export default function App() {
 
   return (
     <div className="app-root">
+      <a className="skip-link" href="#main-content">Skip to content</a>
       <Header />
-      <main className="main-content">
-        {mergedProps.mode === 'status' ? <CreatorStatusPage {...mergedProps} /> : mergedProps.mode === 'view' ? <ViewerPage {...mergedProps} /> : <GeneratorPage />}
+      <main className="main-content" id="main-content">
+        {mergedProps.mode === 'status' ? <CreatorStatusPage {...mergedProps} /> : mergedProps.mode === 'edit' ? <GeneratorPage initialData={inviteData} editId={mergedProps.id} editToken={mergedProps.token} /> : mergedProps.mode === 'view' ? <ViewerPage {...mergedProps} /> : <GeneratorPage />}
       </main>
     </div>
   );

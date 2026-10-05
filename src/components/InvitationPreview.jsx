@@ -18,7 +18,7 @@ export default function InvitationPreview({ form, imagePreview }) {
         <span className="preview-dot" style={{ backgroundColor: themeColor }} aria-hidden="true" />
       </div>
 
-      <div className="preview-invitation" id="invitation-preview-card" style={{ '--preview-color': themeColor }}>
+      <div className={`preview-invitation template-${form.template || 'classic'}`} id="invitation-preview-card" style={{ '--preview-color': themeColor }}>
         <div className="preview-heart">
           {image ? <img src={image} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} /> : <span aria-hidden="true">💖</span>}
         </div>
