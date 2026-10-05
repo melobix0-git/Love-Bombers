@@ -15,7 +15,9 @@ The Vite dev server includes a local, in-memory invitation API, so creation and 
 
 Copy `.env.example` to `.env` and fill in server-side values:
 
+- `APP_URL` — public app URL used in automatic response emails.
 - `IMGBB_API_KEY` — optional server-side image upload key. It must never use the `VITE_` prefix.
+- `RESEND_API_KEY` and `RESEND_FROM_EMAIL` — optional automatic response email delivery.
 - `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` — durable invitation storage in production.
 - `INVITATION_TTL_DAYS` — invitation retention period, defaulting to 30 days.
 - `ALLOW_EPHEMERAL_STORAGE=true` — local-only in-memory storage for development. Do not use this in production.
@@ -26,6 +28,7 @@ Never commit `.env` or credentials.
 
 - Configure Upstash Redis before deploying.
 - Configure the server-side ImgBB key only if photo uploads are enabled.
-- Verify `POST /api/invitations` and `GET /api/invitations?id=...` through the deployed domain.
+- Verify `POST /api/invitations`, public invitation loading, and private status links through the deployed domain.
+- Configure a verified Resend sender domain before enabling automatic email notifications.
 - Test social previews with WhatsApp, Telegram, and Facebook crawler tools.
 - Keep uploaded photos and invitation records subject to a clear retention policy.

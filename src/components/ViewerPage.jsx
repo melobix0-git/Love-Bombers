@@ -43,6 +43,8 @@ export default function ViewerPage({
   status = 'pending',
   selectedDate = '',
   selectedTime = '',
+  dateMode = 'recipient',
+  dateOptions = [],
   color = '#800020',
   meal = 'A meal together',
   place = 'Somewhere special',
@@ -64,6 +66,7 @@ export default function ViewerPage({
   const [noPosition, setNoPosition] = useState(null);
   const [hearts, setHearts] = useState([]);
   const [form, setForm] = useState({ date: selectedDate, time: selectedTime });
+  const [selectedOption, setSelectedOption] = useState(selectedDate && selectedTime ? `${selectedDate}|${selectedTime}` : '');
   const [isSaving, setIsSaving] = useState(false);
   const [responseError, setResponseError] = useState('');
 
@@ -132,8 +135,19 @@ export default function ViewerPage({
   const handleDateSubmit = async (event) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    const date = data.get('date');
-    const time = data.get('time');
+    let date = data.get('date');
+    let time = data.get('time');
+
+    if (dateMode === 'suggestions') {
+      const [suggestedDate, suggestedTime] = String(data.get('suggestedOption') || '').split('|');
+      date = suggestedDate;
+      time = suggestedTime;
+      if (!date || !time) {
+        setResponseError('Please choose one of the suggested dates.');
+        return;
+      }
+    }
+
     const saved = await saveResponse({ status: 'accepted', date, time });
     if (saved) setForm({ date, time });
   };
@@ -231,11 +245,35 @@ export default function ViewerPage({
           </p>
 
           <form className="date-form" onSubmit={handleDateSubmit}>
-            <label htmlFor="date-input">{copy.dateLabel}</label>
-            <input id="date-input" type="date" name="date" min={localDateString()} required />
-            <label htmlFor="time-input">{copy.timeLabel}</label>
-            <input id="time-input" type="time" name="time" required />
-            <button type="submit" className="btn submit-btn" style={{ background: themeColor }} disabled={isSaving}>
+            {dateMode === 'suggestions' && dateOptions.length > 0 ? (
+              <div className="date-option-choices" role="radiogroup" aria-label="Suggested date options">
+                <p className="field-help">Choose the option that works best for you.</p>
+                {dateOptions.map((option, index) => {
+                  const optionValue = `${option.date}|${option.time}`;
+                  return (
+                    <label className={`date-option-card ${selectedOption === optionValue ? 'selected' : ''}`} key={optionValue}>
+                      <input
+                        type="radio"
+                        name="suggestedOption"
+                        value={optionValue}
+                        checked={selectedOption === optionValue}
+                        onChange={(event) => setSelectedOption(event.target.value)}
+                        required={index === 0}
+                      />
+                      <span><strong>Option {index + 1}</strong>{formatLocalDate(option.date)} at {option.time}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <>
+                <label htmlFor="date-input">{copy.dateLabel}</label>
+                <input id="date-input" type="date" name="date" min={localDateString()} required />
+                <label htmlFor="time-input">{copy.timeLabel}</label>
+                <input id="time-input" type="time" name="time" required />
+              </>
+            )}
+            <button type="submit" className="btn submit-btn" style={{ background: themeColor, color: foregroundColor }} disabled={isSaving}>
               {isSaving ? 'Saving…' : copy.submit}
             </button>
           </form>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import Header from './components/Header';
+import CreatorStatusPage from './components/CreatorStatusPage';
 import GeneratorPage from './components/GeneratorPage';
 import ViewerPage from './components/ViewerPage';
 import './App.css';
@@ -9,12 +10,13 @@ function useQueryParams() {
     const params = new URLSearchParams(window.location.search);
     const id = params.get('id') || '';
     const explicitMode = params.get('mode');
-    const mode = explicitMode === 'view' || id ? 'view' : 'generate';
+    const mode = explicitMode === 'status' ? 'status' : explicitMode === 'view' || id ? 'view' : 'generate';
     const rawColor = params.get('color') || '#800020';
 
     return {
       id,
       mode,
+      token: params.get('token') || '',
       crushName: params.get('crushName') || 'My Crush',
       myName: params.get('myName') || 'Someone special',
       color: rawColor.startsWith('#') ? rawColor : `#${rawColor}`,
@@ -56,7 +58,9 @@ export default function App() {
 
     const controller = new AbortController();
 
-    fetch(`/api/invitations?id=${encodeURIComponent(queryProps.id)}`, { signal: controller.signal })
+    const tokenParam = queryProps.token ? `&token=${encodeURIComponent(queryProps.token)}` : '';
+    const modeParam = queryProps.mode === 'status' ? '&mode=status' : '';
+    fetch(`/api/invitations?id=${encodeURIComponent(queryProps.id)}${modeParam}${tokenParam}`, { signal: controller.signal })
       .then(async (response) => {
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
@@ -77,7 +81,7 @@ export default function App() {
       });
 
     return () => controller.abort();
-  }, [queryProps.id]);
+  }, [queryProps.id, queryProps.mode, queryProps.token]);
 
   if (inviteState === 'loading') {
     return <InvitationState title="Opening your invitation…" message="One moment, there is something special here for you." />;
@@ -106,7 +110,7 @@ export default function App() {
     <div className="app-root">
       <Header />
       <main className="main-content">
-        {mergedProps.mode === 'view' ? <ViewerPage {...mergedProps} /> : <GeneratorPage />}
+        {mergedProps.mode === 'status' ? <CreatorStatusPage {...mergedProps} /> : mergedProps.mode === 'view' ? <ViewerPage {...mergedProps} /> : <GeneratorPage />}
       </main>
     </div>
   );

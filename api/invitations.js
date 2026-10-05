@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import {
   getInvitation,
   getInvitationTtlSeconds,
@@ -72,6 +72,19 @@ function safeTime(value) {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(candidate) ? candidate : '';
 }
 
+function normalizeDateOptions(value) {
+  if (!Array.isArray(value)) return [];
+  const options = [];
+  value.slice(0, 3).forEach((item) => {
+    const date = safeDate(item?.date);
+    const time = safeTime(item?.time);
+    if (date && time && !options.some((option) => option.date === date && option.time === time)) {
+      options.push({ date, time });
+    }
+  });
+  return options;
+}
+
 function parseBody(req) {
   if (!req.body) return {};
   if (typeof req.body === 'object') return req.body;
@@ -86,6 +99,14 @@ function newInvitationId() {
   return randomBytes(9).toString('base64url');
 }
 
+function newManageToken() {
+  return randomBytes(24).toString('base64url');
+}
+
+function hashToken(value) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
 function isBot(req) {
   return /WhatsApp|facebookexternalhit|Twitterbot|TelegramBot|LinkedInBot|Discordbot/i.test(
     req.headers?.['user-agent'] || '',
@@ -98,6 +119,35 @@ function getBaseUrl(req) {
   return `${protocol}://${host || 'localhost'}`;
 }
 
+function getParam(req, name) {
+  if (req.query?.[name]) return text(req.query[name], '', 160);
+  try {
+    return text(new URL(req.url, 'https://love-bomber.local').searchParams.get(name), '', 160);
+  } catch {
+    return '';
+  }
+}
+
+function getId(req) {
+  return getParam(req, 'id');
+}
+
+function getAccessToken(req) {
+  return getParam(req, 'token');
+}
+
+function isStatusRequest(req) {
+  return getParam(req, 'mode') === 'status' || Boolean(getAccessToken(req));
+}
+
+function hasValidManageToken(invitation, token) {
+  return Boolean(token && invitation?.manageTokenHash && hashToken(token) === invitation.manageTokenHash);
+}
+
+function isExpired(invitation) {
+  return invitation.expiresAt && new Date(invitation.expiresAt).getTime() <= Date.now();
+}
+
 function escapeHtml(value) {
   return String(value || '').replace(/[&<>"']/g, (character) => ({
     '&': '&amp;',
@@ -106,19 +156,6 @@ function escapeHtml(value) {
     '"': '&quot;',
     "'": '&#039;',
   }[character]));
-}
-
-function getId(req) {
-  if (req.query?.id) return text(req.query.id, '', 80);
-  try {
-    return text(new URL(req.url, 'https://love-bomber.local').searchParams.get('id'), '', 80);
-  } catch {
-    return '';
-  }
-}
-
-function isExpired(invitation) {
-  return invitation.expiresAt && new Date(invitation.expiresAt).getTime() <= Date.now();
 }
 
 async function uploadImageToImgBB(imageData) {
@@ -149,9 +186,48 @@ async function uploadImageToImgBB(imageData) {
   return safeImageUrl(result.data.url);
 }
 
+async function sendResponseEmail(invitation) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey || !invitation.senderEmail) return;
+
+  const hasDate = invitation.selectedDate && invitation.selectedTime;
+  const subject = invitation.status === 'declined'
+    ? `${invitation.crushName} responded to your invitation`
+    : `${invitation.crushName} accepted your invitation 💖`;
+  const message = invitation.status === 'declined'
+    ? `${invitation.crushName} has declined the invitation. No hard feelings.`
+    : hasDate
+      ? `${invitation.crushName} accepted! Your date is ${invitation.selectedDate} at ${invitation.selectedTime}.`
+      : `${invitation.crushName} accepted! They are choosing a date and time now.`;
+  const appUrl = process.env.APP_URL?.replace(/\/$/, '');
+  const invitationUrl = appUrl ? `${appUrl}/?id=${encodeURIComponent(invitation.id)}` : '';
+  const html = `<p>${escapeHtml(message)}</p>${invitationUrl ? `<p><a href="${escapeHtml(invitationUrl)}">Open the invitation</a></p>` : '<p>Open your saved status link to see the latest details.</p>'}`;
+  const from = process.env.RESEND_FROM_EMAIL || 'Love Bomber <onboarding@resend.dev>';
+
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from,
+      to: [invitation.senderEmail],
+      subject,
+      html,
+    }),
+  });
+
+  if (!response.ok) {
+    const result = await response.text().catch(() => '');
+    console.error('Response email failed:', result);
+  }
+}
+
 function publicInvitation(invitation) {
   const safeInvitation = { ...invitation };
   delete safeInvitation.imageData;
+  delete safeInvitation.manageTokenHash;
   return safeInvitation;
 }
 
@@ -193,10 +269,16 @@ async function createInvitation(body) {
   const senderPhone = phone(body.senderPhone);
   const senderEmail = email(body.senderEmail);
   const customMessage = text(body.customMessage, '', 500);
+  const dateMode = body.dateMode === 'suggestions' ? 'suggestions' : 'recipient';
+  const dateOptions = normalizeDateOptions(body.dateOptions);
+  if (dateMode === 'suggestions' && dateOptions.length === 0) {
+    throw new ApiError(422, 'Add at least one date option or let the recipient choose.', 'DATE_OPTIONS_REQUIRED');
+  }
   const imageUrl = body.imageData
     ? await uploadImageToImgBB(body.imageData)
     : safeImageUrl(body.imageUrl);
   const now = new Date();
+  const manageToken = newManageToken();
   const invitation = {
     id: newInvitationId(),
     myName: senderName,
@@ -212,15 +294,18 @@ async function createInvitation(body) {
     tone: ['romantic', 'playful', 'simple'].includes(body.tone) ? body.tone : DEFAULT_TONE,
     customMessage,
     playfulNo: body.playfulNo === true,
+    dateMode,
+    dateOptions,
     status: 'pending',
     selectedDate: '',
     selectedTime: '',
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + getInvitationTtlSeconds() * 1000).toISOString(),
+    manageTokenHash: hashToken(manageToken),
   };
 
   await saveInvitation(invitation.id, invitation);
-  return invitation;
+  return { invitation, manageToken };
 }
 
 async function respondToInvitation(body) {
@@ -232,15 +317,37 @@ async function respondToInvitation(body) {
   if (isExpired(invitation)) throw new ApiError(410, 'This invitation has expired.', 'INVITATION_EXPIRED');
 
   const status = body.status === 'declined' ? 'declined' : 'accepted';
+  const rawDate = text(body.date, '', 10);
+  const rawTime = text(body.time, '', 5);
+  const selectedDate = status === 'accepted' ? safeDate(rawDate) : '';
+  const selectedTime = status === 'accepted' ? safeTime(rawTime) : '';
+
+  if (status === 'accepted' && Boolean(rawDate || rawTime) && (!selectedDate || !selectedTime)) {
+    throw new ApiError(422, 'Please choose a valid date and time.', 'INVALID_DATE');
+  }
+
+  if (
+    invitation.dateMode === 'suggestions'
+    && selectedDate
+    && selectedTime
+    && !invitation.dateOptions.some((option) => option.date === selectedDate && option.time === selectedTime)
+  ) {
+    throw new ApiError(422, 'Please choose one of the suggested date options.', 'DATE_OPTION_NOT_ALLOWED');
+  }
+
   const updated = {
     ...invitation,
     status,
-    selectedDate: status === 'accepted' ? safeDate(body.date) : '',
-    selectedTime: status === 'accepted' ? safeTime(body.time) : '',
+    selectedDate,
+    selectedTime,
     respondedAt: new Date().toISOString(),
   };
 
   await saveInvitation(id, updated);
+  const responseChanged = invitation.status !== updated.status
+    || invitation.selectedDate !== updated.selectedDate
+    || invitation.selectedTime !== updated.selectedTime;
+  if (responseChanged) await sendResponseEmail(updated).catch((error) => console.error('Response email error:', error));
   return updated;
 }
 
@@ -251,13 +358,19 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       const id = getId(req);
       let invitation = id ? await getInvitation(id) : null;
+      const accessToken = getAccessToken(req);
 
       if (id && invitation && isExpired(invitation)) {
         invitation = null;
-        if (isBot(req)) {
-          return res.status(410).send('<!doctype html><title>This invitation has expired</title>');
-        }
+        if (isBot(req)) return res.status(410).send('<!doctype html><title>This invitation has expired</title>');
         return res.status(410).json({ error: 'This invitation has expired.', code: 'INVITATION_EXPIRED' });
+      }
+
+      if (isStatusRequest(req)) {
+        if (!invitation || !hasValidManageToken(invitation, accessToken)) {
+          throw new ApiError(403, 'That status link is not valid.', 'STATUS_ACCESS_DENIED');
+        }
+        return res.status(200).json({ success: true, isStatusView: true, ...publicInvitation(invitation) });
       }
 
       if (isBot(req)) {
@@ -276,8 +389,8 @@ export default async function handler(req, res) {
       const body = parseBody(req);
 
       if (body.action === 'create') {
-        const invitation = await createInvitation(body);
-        return res.status(201).json({ success: true, ...publicInvitation(invitation) });
+        const { invitation, manageToken } = await createInvitation(body);
+        return res.status(201).json({ success: true, ...publicInvitation(invitation), manageToken });
       }
 
       if (body.action === 'accept' || body.action === 'respond') {
