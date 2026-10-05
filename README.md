@@ -1,16 +1,31 @@
-# React + Vite
+# Love Bomber 💖
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Love Bomber lets anyone create a personalized date invitation and share it with someone special. Recipients can accept, choose a date and time, notify the sender, and add the plans to Google Calendar.
 
-Currently, two official plugins are available:
+## Local development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```bash
+npm install
+npm run dev
+```
 
-## React Compiler
+The Vite frontend runs without the Vercel API locally. To exercise invitation creation and responses locally, run the app with `vercel dev` or configure a local API proxy.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Environment variables
 
-## Expanding the ESLint configuration
+Copy `.env.example` to `.env` and fill in server-side values:
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- `IMGBB_API_KEY` — optional server-side image upload key. It must never use the `VITE_` prefix.
+- `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` — durable invitation storage in production.
+- `INVITATION_TTL_DAYS` — invitation retention period, defaulting to 30 days.
+- `ALLOW_EPHEMERAL_STORAGE=true` — local-only in-memory storage for development. Do not use this in production.
+
+Never commit `.env` or credentials.
+
+## Production checklist
+
+- Configure Upstash Redis before deploying.
+- Configure the server-side ImgBB key only if photo uploads are enabled.
+- Verify `POST /api/invitations` and `GET /api/invitations?id=...` through the deployed domain.
+- Test social previews with WhatsApp, Telegram, and Facebook crawler tools.
+- Keep uploaded photos and invitation records subject to a clear retention policy.

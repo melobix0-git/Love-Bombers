@@ -1,289 +1,329 @@
 import { useState } from 'react';
-import { IMGBB_API_KEY, COLOR_OPTIONS } from '../config';
+import {
+  COLOR_OPTIONS,
+  LOCALE_OPTIONS,
+  SOUND_OPTIONS,
+  TONE_OPTIONS,
+} from '../config';
 import EmojiBackground from './EmojiBackground';
 import WhatsAppShare from './WhatsAppShare';
 
-export default function GeneratorPage() {
-  const [form, setForm] = useState({
-    myName: '',
-    crushName: '',
-    senderPhone: '', // Optional
-    color: '#800020', // Default burgundy
-    meal: 'Jollof Rice',
-    place: 'Lekki, Lagos',
-    song: 'none',
-    imageFile: null,
-    imageUrl: '',
-    crushEmail: ''
+const INITIAL_FORM = {
+  myName: '',
+  crushName: '',
+  senderPhone: '',
+  senderEmail: '',
+  color: '#800020',
+  meal: 'Jollof Rice',
+  place: 'Lekki, Lagos',
+  sound: 'romantic_chime',
+  locale: 'en',
+  tone: 'romantic',
+  customMessage: '',
+  playfulNo: false,
+  imageData: '',
+  imageUrl: '',
+  recipientEmail: '',
+};
+
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !file.type.startsWith('image/')) {
+      reject(new Error('Please choose a valid image file.'));
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('The image could not be read.'));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error('The image could not be processed.'));
+      image.onload = () => {
+        const maxDimension = 1200;
+        const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext('2d');
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.82));
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
   });
+}
 
+export default function GeneratorPage() {
+  const [form, setForm] = useState(INITIAL_FORM);
   const [generatedLink, setGeneratedLink] = useState('');
-  const [isUploading, setIsUploading] = useState(false);
+  const [imagePreview, setImagePreview] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
   const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
+  const [error, setError] = useState('');
 
-  const selectedColorObj = COLOR_OPTIONS.find((c) => c.hex === form.color) || { name: 'Burgundy', hex: form.color };
+  const selectedColor = COLOR_OPTIONS.find((color) => color.hex === form.color) || {
+    name: 'Custom color',
+    hex: form.color,
+    foreground: '#ffffff',
+  };
 
-  const uploadImage = async (file) => {
-    if (!file) return '';
-    setIsUploading(true);
-    const formData = new FormData();
-    formData.append('image', file);
+  const updateField = (field, value) => {
+    setForm((previous) => ({ ...previous, [field]: value }));
+    if (error) setError('');
+  };
+
+  const handleFileChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
     try {
-      const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, { 
-        method: 'POST', 
-        body: formData 
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data?.error?.message || 'Upload failed');
-      return data.data.url;
-    } catch (err) {
-      alert(`Image upload error: ${err.message}`);
-      return '';
-    } finally {
-      setIsUploading(false);
+      const imageData = await compressImage(file);
+      setForm((previous) => ({ ...previous, imageData, imageUrl: '' }));
+      setImagePreview(imageData);
+      setError('');
+    } catch (uploadError) {
+      setError(uploadError.message);
+      event.target.value = '';
     }
   };
 
-  const generateLink = async () => {
-    let imgUrl = form.imageUrl;
-    if (form.imageFile) {
-      imgUrl = await uploadImage(form.imageFile);
+  const createInvitation = async () => {
+    if (!form.myName.trim() || !form.crushName.trim()) {
+      setError('Please add both names before creating the invitation.');
+      return '';
     }
 
-    const baseUrl = window.location.origin + window.location.pathname;
+    setError('');
+    setIsGenerating(true);
 
     try {
-      // Save invitation to Vercel API for short link generation
-      const res = await fetch('/api/invitations', {
+      const response = await fetch('/api/invitations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'create',
-          senderName: form.myName || 'Someone Special',
-          crushName: form.crushName || 'My Crush',
-          senderPhone: form.senderPhone || '',
+          senderName: form.myName,
+          crushName: form.crushName,
+          senderPhone: form.senderPhone,
+          senderEmail: form.senderEmail,
           meal: form.meal,
           place: form.place,
-          song: form.song,
-          imageUrl: imgUrl,
-          themeColor: form.color
-        })
+          sound: form.sound,
+          themeColor: form.color,
+          locale: form.locale,
+          tone: form.tone,
+          customMessage: form.customMessage,
+          playfulNo: form.playfulNo,
+          imageData: form.imageData,
+          imageUrl: form.imageUrl,
+        }),
       });
+      const data = await response.json().catch(() => ({}));
 
-      const data = await res.json();
-
-      let link = '';
-      if (data.success && data.id) {
-        link = `${baseUrl}?id=${data.id}`;
-      } else {
-        // Fallback to query string if API ID creation fails
-        const safeColor = form.color.replace('#', '');
-        const params = new URLSearchParams({
-          mode: 'view',
-          myName: form.myName || 'Your Name',
-          crushName: form.crushName || 'My Crush',
-          senderPhone: form.senderPhone || '',
-          color: safeColor,
-          meal: form.meal,
-          place: form.place,
-          img: imgUrl,
-          song: form.song
-        });
-        link = `${baseUrl}?${params.toString()}`;
+      if (!response.ok || !data.success || !data.id) {
+        throw new Error(data.error || 'We could not create the invitation. Please try again.');
       }
 
+      const link = `${window.location.origin}${window.location.pathname}?id=${encodeURIComponent(data.id)}`;
       setGeneratedLink(link);
       return link;
-    } catch (err) {
-      const safeColor = form.color.replace('#', '');
-      const params = new URLSearchParams({
-        mode: 'view',
-        myName: form.myName || 'Your Name',
-        crushName: form.crushName || 'My Crush',
-        senderPhone: form.senderPhone || '',
-        color: safeColor,
-        meal: form.meal,
-        place: form.place,
-        img: imgUrl,
-        song: form.song
-      });
-      const link = `${baseUrl}?${params.toString()}`;
-      setGeneratedLink(link);
-      return link;
+    } catch (createError) {
+      setError(createError.message);
+      return '';
+    } finally {
+      setIsGenerating(false);
     }
   };
 
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    await createInvitation();
+  };
+
   const sendViaEmailApp = async () => {
-    const link = generatedLink || (await generateLink());
-    
-    const emailTo = encodeURIComponent(form.crushEmail || '');
+    const link = generatedLink || await createInvitation();
+    if (!link) return;
+
+    const recipient = form.recipientEmail.trim();
     const subject = encodeURIComponent(`Hey ${form.crushName || 'there'}! You have a special invitation 💖`);
     const body = encodeURIComponent(
-      `Hey ${form.crushName || 'there'}! 😍\n\n` +
-      `${form.myName || 'Someone special'} has created a customized date invitation for you!\n\n` +
-      `Click here to open your invitation:\n${link}\n\n` +
-      `Can't wait to hear from you! 💕`
+      `Hey ${form.crushName || 'there'}!\n\n` +
+      `${form.myName || 'Someone special'} created a customized invitation for you.\n\n` +
+      `Open it here: ${link}\n\n` +
+      'I hope you say yes! 💕',
     );
-
-    window.location.href = `mailto:${emailTo}?subject=${subject}&body=${body}`;
+    window.location.href = `mailto:${encodeURIComponent(recipient)}?subject=${subject}&body=${body}`;
   };
 
   return (
     <div className="container generator-container">
-      {/* Dynamic WhatsApp/Telegram style background layer */}
       <EmojiBackground themeColor={form.color} />
 
-      <div className="card generator-card">
-        <h2 className="form-title" style={{ color: form.color }}>💖 Create Your Date Invitation</h2>
-        <form className="date-form" onSubmit={(e) => e.preventDefault()}>
-          <label>Your Name</label>
-          <input 
-            type="text" 
-            placeholder="e.g. Chidi" 
-            value={form.myName} 
-            onChange={(e) => setForm({...form, myName: e.target.value})} 
-          />
-          
-          <label>Crush's Name</label>
-          <input 
-            type="text" 
-            placeholder="e.g. Ifeoma" 
-            value={form.crushName} 
-            onChange={(e) => setForm({...form, crushName: e.target.value})} 
+      <section className="card generator-card">
+        <p className="eyebrow">CREATE · INVITE · CONNECT</p>
+        <h1 className="form-title" style={{ color: form.color }}>Create a date invitation 💖</h1>
+        <p className="intro-text">Make something personal, send it with love, and let them choose what works for them.</p>
+
+        <form className="date-form" onSubmit={handleSubmit}>
+          <div className="form-section-heading">The essentials</div>
+
+          <label htmlFor="sender-name">Your name</label>
+          <input
+            id="sender-name"
+            type="text"
+            placeholder="e.g. Chidi"
+            value={form.myName}
+            onChange={(event) => updateField('myName', event.target.value)}
+            maxLength={80}
+            required
           />
 
-          <label>Your WhatsApp Phone Number (optional - to receive reply)</label>
-          <input 
-            type="tel" 
-            placeholder="e.g. 2348012345678 (optional)" 
-            value={form.senderPhone} 
-            onChange={(e) => setForm({...form, senderPhone: e.target.value})} 
+          <label htmlFor="recipient-name">Their name</label>
+          <input
+            id="recipient-name"
+            type="text"
+            placeholder="e.g. Ifeoma"
+            value={form.crushName}
+            onChange={(event) => updateField('crushName', event.target.value)}
+            maxLength={80}
+            required
           />
-          
-          {/* Collapsible Color Picker Section */}
+
+          <label htmlFor="custom-message">Add a personal message <span className="optional">(optional)</span></label>
+          <textarea
+            id="custom-message"
+            placeholder="Tell them why you would love to spend time together…"
+            value={form.customMessage}
+            onChange={(event) => updateField('customMessage', event.target.value)}
+            maxLength={500}
+            rows={3}
+          />
+
+          <div className="form-section-heading">Make it yours</div>
+
+          <label htmlFor="invitation-language">Invitation language</label>
+          <select id="invitation-language" value={form.locale} onChange={(event) => updateField('locale', event.target.value)}>
+            {LOCALE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+
+          <label htmlFor="invitation-tone">Tone</label>
+          <select id="invitation-tone" value={form.tone} onChange={(event) => updateField('tone', event.target.value)}>
+            {TONE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+
           <div className="form-group color-picker-collapsible">
-            <label>Her Favorite Color 🎨</label>
+            <label id="color-label">Theme color</label>
             <button
               type="button"
               className="color-toggle-btn"
-              onClick={() => setIsColorPickerOpen(!isColorPickerOpen)}
+              aria-expanded={isColorPickerOpen}
+              aria-controls="color-options"
+              onClick={() => setIsColorPickerOpen((open) => !open)}
             >
               <span className="selected-color-preview">
-                <span className="color-dot" style={{ backgroundColor: form.color }}></span>
-                {selectedColorObj.name}
+                <span className="color-dot" style={{ backgroundColor: form.color }} aria-hidden="true" />
+                {selectedColor.name}
               </span>
-              <span>{isColorPickerOpen ? '▲ Hide Colors' : '▼ Select Color'}</span>
+              <span>{isColorPickerOpen ? 'Hide colors ▲' : 'Choose a color ▼'}</span>
             </button>
 
             {isColorPickerOpen && (
-              <div className="color-swatch-grid">
-                {COLOR_OPTIONS.map((c) => (
+              <div className="color-swatch-grid" id="color-options" role="group" aria-labelledby="color-label">
+                {COLOR_OPTIONS.map((option) => (
                   <button
-                    key={c.hex}
+                    key={option.hex}
                     type="button"
-                    className={`color-swatch-btn ${form.color === c.hex ? 'selected' : ''}`}
-                    style={{ backgroundColor: c.hex }}
+                    className={`color-swatch-btn ${form.color === option.hex ? 'selected' : ''}`}
+                    style={{ backgroundColor: option.hex, color: option.foreground }}
+                    aria-label={`Use ${option.name}`}
+                    aria-pressed={form.color === option.hex}
                     onClick={() => {
-                      setForm({ ...form, color: c.hex });
+                      updateField('color', option.hex);
                       setIsColorPickerOpen(false);
                     }}
                   >
-                    <span className="color-label">{c.name}</span>
+                    <span className="color-label">{option.name}</span>
                   </button>
                 ))}
               </div>
             )}
           </div>
-          
-          <label>Meal Choice 🍛</label>
-          <select value={form.meal} onChange={(e) => setForm({...form, meal: e.target.value})}>
-            <option value="Jollof Rice">Jollof Rice</option>
-            <option value="Fried Rice & Chicken">Fried Rice & Chicken</option>
-            <option value="Suya">Suya</option>
-            <option value="Amala & Egusi">Amala & Egusi</option>
-            <option value="Eba & Okro">Eba & Okro</option>
-            <option value="Pounded Yam & Stew">Pounded Yam & Stew</option>
-          </select>
-          
-          <label>Location 📍</label>
-          <select value={form.place} onChange={(e) => setForm({...form, place: e.target.value})}>
-            <option value="Lekki, Lagos">Lekki, Lagos</option>
-            <option value="VI, Lagos">VI, Lagos</option>
-            <option value="Ikeja, Lagos">Ikeja, Lagos</option>
-            <option value="Abuja City">Abuja City</option>
-            <option value="Port Harcourt">Port Harcourt</option>
-            <option value="Osu, Accra">Osu, Accra (I go travel for you! 😉)</option>
+
+          <label htmlFor="meal-choice">Meal <span className="optional">(you can customize later)</span></label>
+          <input id="meal-choice" type="text" value={form.meal} onChange={(event) => updateField('meal', event.target.value)} maxLength={100} />
+
+          <label htmlFor="place-choice">Location</label>
+          <input id="place-choice" type="text" value={form.place} onChange={(event) => updateField('place', event.target.value)} maxLength={160} />
+
+          <label htmlFor="sound-choice">Celebration sound</label>
+          <select id="sound-choice" value={form.sound} onChange={(event) => updateField('sound', event.target.value)}>
+            {SOUND_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
 
-          <label>Her Favorite Song (plays on "Yes!") 🎵</label>
-          <select value={form.song} onChange={(e) => setForm({...form, song: e.target.value})}>
-            <option value="none">🎶 No music</option>
-            <option value="davido_fall">Davido - Fall</option>
-            <option value="raindance">Dave ft. Tems - Raindance</option>
-            <option value="wizkid_essence">Wizkid - Essence</option>
-            <option value="pharrell_happy">Pharrell - Happy</option>
-          </select>
-          
-          <label>Upload Crush's Picture (optional)</label>
-          <input 
-            type="file" 
-            accept="image/*" 
-            onChange={(e) => setForm({...form, imageFile: e.target.files[0]})} 
-          />
-          <small className="hint">Hosts via ImgBB. Or paste an image URL directly:</small>
-          <input 
-            type="text" 
-            placeholder="Or paste image URL" 
-            value={form.imageUrl} 
-            onChange={(e) => setForm({...form, imageUrl: e.target.value})} 
+          <label htmlFor="image-file">Add a photo <span className="optional">(optional)</span></label>
+          <input id="image-file" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileChange} />
+          <p className="field-help">Your image is resized in your browser before it is uploaded. Maximum 1,200 pixels.</p>
+          {imagePreview && <img className="image-preview" src={imagePreview} alt="Selected invitation preview" />}
+
+          <label htmlFor="image-url">Or use a secure image URL <span className="optional">(optional)</span></label>
+          <input
+            id="image-url"
+            type="url"
+            placeholder="https://…"
+            value={form.imageUrl}
+            onChange={(event) => {
+              updateField('imageUrl', event.target.value);
+              if (event.target.value) {
+                setForm((previous) => ({ ...previous, imageUrl: event.target.value, imageData: '' }));
+                setImagePreview('');
+              }
+            }}
           />
 
-          <label>Crush's Email (optional - opens email app)</label>
-          <input 
-            type="email" 
-            placeholder="crush@email.com" 
-            value={form.crushEmail} 
-            onChange={(e) => setForm({...form, crushEmail: e.target.value})} 
-          />
+          <label className="checkbox-row">
+            <input type="checkbox" checked={form.playfulNo} onChange={(event) => updateField('playfulNo', event.target.checked)} />
+            <span>Use a playful evasive “No” button <span className="optional">(optional)</span></span>
+          </label>
+          <p className="field-help">Even in playful mode, the recipient can decline after a few fun prompts.</p>
+
+          <div className="form-section-heading">How should they reach you?</div>
+
+          <label htmlFor="sender-phone">Your WhatsApp number <span className="optional">(optional)</span></label>
+          <input id="sender-phone" type="tel" placeholder="Use country code, e.g. +2348012345678" value={form.senderPhone} onChange={(event) => updateField('senderPhone', event.target.value)} />
+
+          <label htmlFor="sender-email">Your email <span className="optional">(optional)</span></label>
+          <input id="sender-email" type="email" placeholder="you@example.com" value={form.senderEmail} onChange={(event) => updateField('senderEmail', event.target.value)} />
+          <p className="field-help">The recipient can use either option to tell you their response. We do not send unsolicited email.</p>
+
+          <div className="form-section-heading">Share it</div>
+
+          <label htmlFor="recipient-email">Recipient email <span className="optional">(optional)</span></label>
+          <input id="recipient-email" type="email" placeholder="recipient@example.com" value={form.recipientEmail} onChange={(event) => updateField('recipientEmail', event.target.value)} />
+          <p className="field-help">The email button opens your own email app with the invitation ready to send.</p>
+
+          {error && <p className="form-error" role="alert">{error}</p>}
 
           <div className="action-buttons">
-            <button 
-              className="btn submit-btn" 
-              style={{ background: form.color }} 
-              onClick={generateLink} 
-              disabled={isUploading}
-            >
-              {isUploading ? 'Uploading...' : 'Generate Short Link 📋'}
+            <button className="btn submit-btn" style={{ background: form.color, color: selectedColor.foreground }} type="submit" disabled={isGenerating}>
+              {isGenerating ? 'Creating your invitation…' : 'Create invitation 📋'}
             </button>
-
-            <button 
-              type="button" 
-              className="btn email-btn" 
-              style={{ background: '#ff9800' }} 
-              onClick={sendViaEmailApp} 
-              disabled={isUploading}
-            >
-              Open Email App ✉️
+            <button type="button" className="btn email-btn" onClick={sendViaEmailApp} disabled={isGenerating}>
+              Open email app ✉️
             </button>
           </div>
         </form>
 
         {generatedLink && (
           <>
-            <div className="link-output-box">
-              <p><strong>Your Short Love Bomber Link:</strong></p>
-              <a href={generatedLink} target="_blank" rel="noreferrer">{generatedLink}</a>
+            <div className="link-output-box" role="status">
+              <p><strong>Your invitation is ready</strong></p>
+              <a href={generatedLink} target="_blank" rel="noopener noreferrer">{generatedLink}</a>
             </div>
-
-            <WhatsAppShare 
-              generatedUrl={generatedLink} 
-              crushName={form.crushName} 
-              myName={form.myName} 
-            />
+            <WhatsAppShare generatedUrl={generatedLink} crushName={form.crushName} myName={form.myName} />
           </>
         )}
-      </div>
+      </section>
     </div>
   );
 }

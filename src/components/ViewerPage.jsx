@@ -1,330 +1,278 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import confetti from 'canvas-confetti';
-import { SONG_MAP } from '../config';
+import { getForegroundForColor, SOUND_OPTIONS } from '../config';
+import { getInvitationCopy } from '../copy';
+import { playRomanticChime } from '../sounds';
 import EmojiBackground from './EmojiBackground';
 
-export default function ViewerPage({ crushName, myName, color, meal, place, img, song }) {
-  // Safe color formatting: Ensure leading '#' hex symbol exists
-  const themeColor = color ? (color.startsWith('#') ? color : `#${color}`) : '#800020';
+function localDateString() {
+  const now = new Date();
+  const offset = now.getTimezoneOffset();
+  return new Date(now.getTime() - offset * 60 * 1000).toISOString().slice(0, 10);
+}
 
-  // Safe image decoding fallback
-  let imageUrl = img || '';
-  if (imageUrl) {
-    try {
-      imageUrl = decodeURIComponent(imageUrl);
-    } catch (e) {
-      console.warn('Could not decode image URL:', e);
-    }
-  }
+function safeColor(value) {
+  return /^#[0-9a-f]{6}$/i.test(value || '') ? value : '#800020';
+}
 
-  const [accepted, setAccepted] = useState(false);
+function formatLocalDate(dateString) {
+  if (!dateString) return '';
+  const [year, month, day] = dateString.split('-').map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function normalizePhone(value) {
+  return (value || '').replace(/\D/g, '');
+}
+
+function calendarDateValue(date, time) {
+  return `${date.replaceAll('-', '')}T${time.replace(':', '')}00`;
+}
+
+export default function ViewerPage({
+  id = '',
+  crushName = 'My Crush',
+  myName = 'Someone special',
+  senderPhone = '',
+  senderEmail = '',
+  status = 'pending',
+  selectedDate = '',
+  selectedTime = '',
+  color = '#800020',
+  meal = 'A meal together',
+  place = 'Somewhere special',
+  img = '',
+  sound = 'romantic_chime',
+  locale = 'en',
+  tone = 'romantic',
+  customMessage = '',
+  playfulNo = false,
+}) {
+  const themeColor = safeColor(color);
+  const foregroundColor = getForegroundForColor(themeColor);
+  const copy = getInvitationCopy(locale, tone, crushName);
+  const imageUrl = typeof img === 'string' && img.trim() ? img : '';
+  const hasSound = SOUND_OPTIONS.some((option) => option.value === sound) && sound !== 'none';
+  const [accepted, setAccepted] = useState(status === 'accepted');
+  const [declined, setDeclined] = useState(status === 'declined');
   const [noCount, setNoCount] = useState(0);
-  const [yesCount, setYesCount] = useState(0);
+  const [noPosition, setNoPosition] = useState(null);
   const [hearts, setHearts] = useState([]);
-  const [form, setForm] = useState({ date: '', time: '' });
-  const [isPlaying, setIsPlaying] = useState(false);
-  const audioRef = useRef(null);
-
-  const noMessages = [
-    "No o", 
-    "Abeg nau, wahala", 
-    "Ehn, ahh don mad",
-    "Na so?", 
-    "God abeg!", 
-    "Oya, try again o!",
-    "Don't be stubborn 🥺", 
-    "Ah! My heart!"
-  ];
-
-  const yesMessages = [
-    "Yes, Gbam! 💖", 
-    "Wait you mean am 🥺", 
-    "Are you sure 🥺 ", 
-    "Oh she's serious 🥺🥺", 
-    "My heart don skip 💖", 
-    "You're too sweet 🥺🥺", 
-    "Thank you 🥺🥺🥺", 
-    "Let's gooo 💖"
-  ];
-
-  const getNoMessage = () => noMessages[Math.min(noCount, noMessages.length - 1)];
-
-  const getNoButtonStyle = () => {
-    if (noCount === 0) return {};
-    const x = Math.random() * 70 + 10;
-    const y = Math.random() * 70 + 10;
-    return { 
-      position: 'absolute', 
-      left: `${x}%`, 
-      top: `${y}%`, 
-      transition: 'all 0.2s ease-in-out' 
-    };
-  };
-
-  const getYesButtonStyle = () => {
-    if (yesCount === 0) return { transform: 'scale(1)' };
-    return {
-      transform: `scale(1.08) translate(${Math.sin(yesCount) * 4}px, ${Math.cos(yesCount) * 3}px)`,
-      transition: 'all 0.3s cubic-bezier(0.175, 0.225, 0.132, 0.275)'
-    };
-  };
+  const [form, setForm] = useState({ date: selectedDate, time: selectedTime });
+  const [isSaving, setIsSaving] = useState(false);
+  const [responseError, setResponseError] = useState('');
 
   const createHeart = () => {
-    const id = Date.now();
-    setHearts((prev) => [
-      ...prev,
-      {
-        id,
-        left: Math.random() * 80 + 10,
-        emoji: ["❤️", "💕", "💖", "💘", "💝"][Math.floor(Math.random() * 5)],
-      },
-    ]);
-
-    setTimeout(() => {
-      setHearts((prev) => prev.filter((heart) => heart.id !== id));
-    }, 1500);
+    const heart = {
+      id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+      left: Math.random() * 80 + 10,
+      emoji: ['❤️', '💕', '💖', '💘', '💝'][Math.floor(Math.random() * 5)],
+    };
+    setHearts((previous) => [...previous, heart]);
+    window.setTimeout(() => setHearts((previous) => previous.filter((item) => item.id !== heart.id)), 1500);
   };
 
-  const toggleAudio = () => {
-    if (!audioRef.current) return;
-    if (isPlaying) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-    } else {
-      audioRef.current.play().then(() => setIsPlaying(true)).catch((e) => console.warn("Audio play blocked:", e));
+  const moveNoButton = () => {
+      setNoPosition({
+        position: 'absolute',
+        left: `${Math.random() * 62 + 19}%`,
+        top: `${Math.random() * 55 + 22}%`,
+      });
+  };
+
+  const saveResponse = async ({ status, date = '', time = '' }) => {
+    if (!id) return true;
+    setIsSaving(true);
+    setResponseError('');
+
+    try {
+      const response = await fetch('/api/invitations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'respond', id, status, date, time }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Your response could not be saved.');
+      return true;
+    } catch (error) {
+      setResponseError(error.message);
+      return false;
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const handleYesClick = () => {
+  const handleYesClick = async () => {
+    const saved = await saveResponse({ status: 'accepted' });
+    if (!saved) return;
+
     createHeart();
+    setAccepted(true);
+    if (hasSound && sound === 'romantic_chime') playRomanticChime();
+    confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+    window.setTimeout(() => confetti({ particleCount: 100, spread: 100 }), 400);
+  };
 
-    if (yesCount < yesMessages.length - 1) {
-      setYesCount((prev) => prev + 1);
-    } else {
-      setAccepted(true);
-
-      // Trigger multi-stage confetti explosion
-      confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
-      setTimeout(() => confetti({ particleCount: 100, spread: 100 }), 400);
-
-      // Play chosen background song if selected
-      if (audioRef.current && song !== 'none') {
-        audioRef.current.play()
-          .then(() => setIsPlaying(true))
-          .catch((e) => console.warn("Autoplay blocked:", e));
-      }
+  const handleNoClick = async () => {
+    if (playfulNo && noCount < 2) {
+      setNoCount((count) => count + 1);
+      moveNoButton();
+      return;
     }
+
+    const saved = await saveResponse({ status: 'declined' });
+    if (saved) setDeclined(true);
+  };
+
+  const handleDateSubmit = async (event) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const date = data.get('date');
+    const time = data.get('time');
+    const saved = await saveResponse({ status: 'accepted', date, time });
+    if (saved) setForm({ date, time });
   };
 
   const getCalendarLink = () => {
     if (!form.date || !form.time) return '#';
-    const start = new Date(`${form.date}T${form.time}`);
-    const end = new Date(start.getTime() + 2 * 60 * 60 * 1000); // +2 hours
-    const fmt = (d) => d.toISOString().replace(/-|:|\.\d{3}/g, '');
+    const start = calendarDateValue(form.date, form.time);
+    const [year, month, day] = form.date.split('-').map(Number);
+    const [hours, minutes] = form.time.split(':').map(Number);
+    const endDate = new Date(year, month - 1, day, hours, minutes);
+    endDate.setHours(endDate.getHours() + 2);
+    const endDateString = [
+      endDate.getFullYear(),
+      String(endDate.getMonth() + 1).padStart(2, '0'),
+      String(endDate.getDate()).padStart(2, '0'),
+    ].join('-');
+    const endTime = `${String(endDate.getHours()).padStart(2, '0')}:${String(endDate.getMinutes()).padStart(2, '0')}`;
+    const end = calendarDateValue(endDateString, endTime);
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     const text = encodeURIComponent(`Date with ${myName} ❤️`);
-    const details = encodeURIComponent(`We are eating ${meal} at ${place}! Can't wait! 😘`);
+    const details = encodeURIComponent(customMessage || `We are having ${meal} at ${place}. Can't wait!`);
     const location = encodeURIComponent(place);
-
-    return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${text}&dates=${fmt(start)}/${fmt(end)}&details=${details}&location=${location}`;
+    return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${text}&dates=${start}/${end}&ctz=${encodeURIComponent(timezone)}&details=${details}&location=${location}`;
   };
 
-  const formatLocalDate = (dateStr) => {
-    if (!dateStr) return '';
-    const [year, month, day] = dateStr.split('-').map(Number);
-    return new Date(year, month - 1, day).toDateString();
-  };
-
-  const hasValidImage = Boolean(imageUrl && imageUrl.trim() !== '');
+  const responseText = encodeURIComponent(
+    `Hi ${myName}! ${crushName} accepted the invitation 💖${form.date ? `\n\nDate: ${formatLocalDate(form.date)} at ${form.time}` : ''}${place ? `\nLocation: ${place}` : ''}`,
+  );
+  const phone = normalizePhone(senderPhone);
+  const whatsappLink = phone ? `https://wa.me/${phone}?text=${responseText}` : '';
+  const emailLink = senderEmail
+    ? `mailto:${encodeURIComponent(senderEmail)}?subject=${encodeURIComponent(`${crushName} accepted your invitation 💖`)}&body=${responseText}`
+    : '';
 
   return (
     <div className="container viewer-container">
-      {/* Dynamic WhatsApp/Telegram style background wallpaper */}
       <EmojiBackground themeColor={themeColor} />
 
-      {/* Background Audio Source */}
-      {song !== 'none' && SONG_MAP[song] && (
-        <audio ref={audioRef} src={SONG_MAP[song]} loop />
-      )}
-
-      {/* Music Control Toggle Button */}
-      {song !== 'none' && SONG_MAP[song] && (
-        <button 
-          type="button" 
-          className="audio-toggle-btn" 
-          onClick={toggleAudio}
-          style={{
-            position: 'fixed',
-            bottom: '20px',
-            right: '20px',
-            zIndex: 100,
-            background: 'rgba(17, 17, 17, 0.85)',
-            color: '#ffffff',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            borderRadius: '30px',
-            padding: '8px 16px',
-            fontSize: '0.85rem',
-            fontWeight: '600',
-            cursor: 'pointer',
-            backdropFilter: 'blur(8px)',
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)'
-          }}
-        >
-          {isPlaying ? '🎵 Pause Music' : '🎶 Play Song'}
-        </button>
-      )}
-
-      {/* Floating Hearts */}
-      <div className="hearts-container">
+      <div className="hearts-container" aria-hidden="true">
         {hearts.map((heart) => (
-          <span 
-            key={heart.id} 
-            className="floating-heart" 
-            style={{ left: `${heart.left}%` }}
-          >
-            {heart.emoji}
-          </span>
+          <span key={heart.id} className="floating-heart" style={{ left: `${heart.left}%` }}>{heart.emoji}</span>
         ))}
       </div>
 
-      {/* STAGE 1: QUESTION */}
-      {!accepted && !form.date && (
-        <div className="card invitation-card">
-          {hasValidImage ? (
-            <div className="heart-frame-container">
-              <div className="heart-frame" style={{ backgroundColor: themeColor }}>
-                <img src={imageUrl} alt={crushName} className="crush-img" />
-              </div>
+      {responseError && <p className="floating-error" role="alert">{responseError}</p>}
+
+      {declined && (
+        <section className="card state-card decline-card">
+          <div className="state-icon" aria-hidden="true">💛</div>
+          <h1 className="title" style={{ color: themeColor }}>{copy.declineTitle}</h1>
+          <p className="state-message">{copy.declineText}</p>
+        </section>
+      )}
+
+      {!declined && !accepted && (
+        <section className="card invitation-card">
+          <div className="heart-frame-container">
+            <div className="heart-frame" style={{ backgroundColor: themeColor }}>
+              {imageUrl ? <img src={imageUrl} alt={`A photo shared by ${myName}`} className="crush-img" /> : <span className="heart-placeholder" aria-hidden="true">💖</span>}
             </div>
-          ) : (
-            <div className="heart-frame-container">
-              <div className="heart-frame" style={{ backgroundColor: themeColor }}>
-                <span style={{ fontSize: '3rem', color: '#fff' }}>💖</span>
+          </div>
+
+          <p className="eyebrow">A PERSONAL INVITATION FOR YOU</p>
+          <h1 className="title" style={{ color: themeColor }}>{copy.question}</h1>
+          {customMessage && <p className="custom-message">“{customMessage}”</p>}
+
+          <div className="button-wrapper" style={{ position: 'relative' }}>
+            <button className="btn yes-btn" style={{ background: themeColor, color: foregroundColor }} onClick={handleYesClick} disabled={isSaving}>
+              {isSaving ? 'Saving your answer…' : copy.yes}
+            </button>
+            <button
+              className="btn no-btn"
+              onClick={handleNoClick}
+              onMouseEnter={() => {
+                if (playfulNo && noCount < 2) moveNoButton();
+              }}
+              style={noPosition || undefined}
+              disabled={isSaving}
+            >
+              {playfulNo && noCount < copy.noMessages.length ? copy.noMessages[noCount] : copy.no}
+            </button>
+          </div>
+          <p className="sub-text">No pressure. Choose what feels right for you.</p>
+        </section>
+      )}
+
+      {!declined && accepted && !form.date && (
+        <section className="card">
+          <p className="eyebrow">STEP TWO</p>
+          <h2 className="form-title" style={{ color: themeColor }}>{copy.planTitle}</h2>
+          <p className="summary-preview" style={{ borderLeftColor: themeColor }}>
+            {copy.planSummary}<br />
+            🍛 <strong>Meal:</strong> {meal}<br />
+            📍 <strong>Place:</strong> {place}
+          </p>
+
+          <form className="date-form" onSubmit={handleDateSubmit}>
+            <label htmlFor="date-input">{copy.dateLabel}</label>
+            <input id="date-input" type="date" name="date" min={localDateString()} required />
+            <label htmlFor="time-input">{copy.timeLabel}</label>
+            <input id="time-input" type="time" name="time" required />
+            <button type="submit" className="btn submit-btn" style={{ background: themeColor }} disabled={isSaving}>
+              {isSaving ? 'Saving…' : copy.submit}
+            </button>
+          </form>
+        </section>
+      )}
+
+      {!declined && accepted && form.date && (
+        <section className="card success-card">
+          <div className="celebration-badge" style={{ backgroundColor: themeColor, color: foregroundColor }}>🎉 {copy.successTitle} 🎉</div>
+          <h1 className="title success-title" style={{ color: themeColor }}>{copy.successTitle}</h1>
+          <p className="success-text">{copy.successText}</p>
+
+          <div className="details-grid">
+            <div className="detail-chip"><span className="chip-icon">🍛</span><div><span className="chip-label">Meal</span><strong className="chip-value">{meal}</strong></div></div>
+            <div className="detail-chip"><span className="chip-icon">📍</span><div><span className="chip-label">Place</span><strong className="chip-value">{place}</strong></div></div>
+            <div className="detail-chip"><span className="chip-icon">📅</span><div><span className="chip-label">Date</span><strong className="chip-value">{formatLocalDate(form.date)}</strong></div></div>
+            <div className="detail-chip"><span className="chip-icon">⏰</span><div><span className="chip-label">Time</span><strong className="chip-value">{form.time}</strong></div></div>
+          </div>
+
+          <a href={getCalendarLink()} target="_blank" rel="noopener noreferrer" className="btn calendar-btn" style={{ backgroundColor: themeColor, color: foregroundColor }}>
+            📅 Add to Google Calendar
+          </a>
+
+          {(whatsappLink || emailLink) && (
+            <div className="notify-card">
+              <h3>Tell {myName} the good news</h3>
+              <p className="field-help">Your response has been saved. You can also send it directly.</p>
+              <div className="notification-actions">
+                {whatsappLink && <a className="btn whatsapp-btn" href={whatsappLink} target="_blank" rel="noopener noreferrer">📲 WhatsApp</a>}
+                {emailLink && <a className="btn email-btn" href={emailLink}>✉️ Email</a>}
               </div>
             </div>
           )}
-          
-          <h1 className="title" style={{ color: themeColor }}>
-            {crushName}, will you be my date? 🥺
-          </h1>
-
-          <div className="button-wrapper" style={{ position: 'relative', minHeight: '120px', width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-            <button 
-              className="btn yes-btn" 
-              style={{ background: themeColor, ...getYesButtonStyle() }} 
-              onClick={handleYesClick}
-            >
-              {yesMessages[yesCount]}
-            </button>
-
-            <button 
-              className="btn no-btn" 
-              onClick={() => setNoCount((prev) => prev + 1)} 
-              onMouseEnter={() => {
-                if (noCount > 0) setNoCount((prev) => prev + 1);
-              }}
-              style={getNoButtonStyle()}
-            >
-              {getNoMessage()}
-            </button>
-          </div>
-          <p className="sub-text">(No wahala, just click yes! 😄)</p>
-        </div>
+        </section>
       )}
 
-      {/* STAGE 2: DATE & TIME FORM */}
-      {accepted && !form.date && (
-        <div className="card">
-          <h2 className="form-title" style={{ color: themeColor }}>Arewà, make we plan this date! 😍</h2>
-          <form 
-            className="date-form" 
-            onSubmit={(e) => {
-              e.preventDefault();
-              const formData = new FormData(e.target);
-              setForm({ date: formData.get('date'), time: formData.get('time') });
-            }}
-          >
-            <p className="summary-preview" style={{ borderLeftColor: themeColor }}>
-              🍛 <strong>Meal:</strong> {meal} <br/>
-              📍 <strong>Place:</strong> {place}
-            </p>
-
-            <label htmlFor="date-input">Which day? 📅</label>
-            <input id="date-input" type="date" name="date" required />
-            
-            <label htmlFor="time-input">What time? ⏰</label>
-            <input id="time-input" type="time" name="time" required />
-            
-            <button type="submit" className="btn submit-btn" style={{ background: themeColor }}>
-              Oya, make we go! 💃
-            </button>
-          </form>
-        </div>
-      )}
-
-      {/* STAGE 3: SUCCESS & GOOGLE CALENDAR */}
-      {accepted && form.date && (
-        <div className="card success-card">
-          <div className="celebration-badge" style={{ backgroundColor: themeColor }}>
-            🎉 IT'S A DATE! 🎉
-          </div>
-
-          <h1 className="title success-title" style={{ color: themeColor }}>
-            No Worry, I go Flex you die! ❤️
-          </h1>
-          <p className="success-text">Omo, I can't wait to see you! 😘</p>
-
-          {/* Styled Details Grid */}
-          <div className="details-grid">
-            <div className="detail-chip">
-              <span className="chip-icon">🍛</span>
-              <div>
-                <span className="chip-label">Meal</span>
-                <strong className="chip-value">{meal}</strong>
-              </div>
-            </div>
-
-            <div className="detail-chip">
-              <span className="chip-icon">📍</span>
-              <div>
-                <span className="chip-label">Place</span>
-                <strong className="chip-value">{place}</strong>
-              </div>
-            </div>
-
-            <div className="detail-chip">
-              <span className="chip-icon">📅</span>
-              <div>
-                <span className="chip-label">Date</span>
-                <strong className="chip-value">{formatLocalDate(form.date)}</strong>
-              </div>
-            </div>
-
-            <div className="detail-chip">
-              <span className="chip-icon">⏰</span>
-              <div>
-                <span className="chip-label">Time</span>
-                <strong className="chip-value">{form.time}</strong>
-              </div>
-            </div>
-          </div>
-
-          {/* Primary Calendar Action */}
-          <a
-            href={getCalendarLink()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn calendar-btn"
-            style={{ backgroundColor: themeColor }}
-          >
-            📅 Add to Google Calendar
-          </a>
-        </div>
-      )}
-
-      {/* Playful Flex Subtext */}
-      <div className="flex-pill-box">
-        Normal guys send texts, but I built you a whole website. I'm not like other guys 😉
-      </div>
+      <div className="flex-pill-box">{copy.footer}</div>
     </div>
   );
 }
